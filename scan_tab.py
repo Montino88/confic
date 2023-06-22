@@ -13,19 +13,6 @@ from detailed_tooltip import DetailedInfoWidget
 
 
 
-class MyToolTip(QWidget):
-    def __init__(self, parent=None):
-        super(MyToolTip, self).__init__(parent)
-        self.setWindowFlags(Qt.ToolTip)  # Сделать виджет похожим на подсказку
-        self.setLayout(QVBoxLayout())
-        self.label = QLabel(self)
-        self.layout().addWidget(self.label)
-
-    def show_text(self, text, pos):
-        self.label.setText(text)
-        self.adjustSize()  # Изменить размер подсказки под текст
-        self.move(pos)  # Переместить подсказку на нужную позицию
-        self.show()  # Показать подсказку
 
 
 def expand_cidr_range(cidr):
@@ -35,6 +22,7 @@ def expand_cidr_range(cidr):
         except ValueError:
             # В случае некорректного ввода, возвращаем пустой список
             return []
+        
 def convert_seconds_to_time_string(seconds):
         days, remainder = divmod(seconds, 86400)
         hours, remainder = divmod(remainder, 3600)
@@ -50,8 +38,15 @@ class ScanTab(QWidget):
         self.scan_thread = None
         self.miner_rows = {}  # словарь для хранения строк таблицы для каждого майнера
         self.open_ports = {}  # инициализация open_ports как пустого словаря
-
         layout = QVBoxLayout()
+
+        self.settings_tab.ip_range_changed.connect(self.on_ip_range_changed)
+
+        ip_range = self.get_ip_range()  # получить ip_range откуда-то
+        self.scan_thread = ScanThread(ip_range)
+
+        self.scan_thread.ip_scanned.connect(self.update_progress_bar)  # подключаем сигнал к слоту обновления прогресс-бара
+
 
         button_layout = QHBoxLayout()
         button_layout.setContentsMargins(0, -10, 0, 0)
@@ -98,7 +93,22 @@ class ScanTab(QWidget):
 
         # Создание прогресс-бара
         self.progress_bar = QProgressBar(self)
-        self.progress_bar.setMaximum(100)  # предполагаем, что максимальное количество майнеров - 100
+        self.progress_bar.setRange(0, 100)  # Устанавливаем диапазон от 0 до 100
+        self.progress_bar.setTextVisible(True)  # Включаем отображение текста
+
+        # Стилизуем прогресс-бар с помощью CSS
+        self.progress_bar.setStyleSheet("""
+            QProgressBar {
+                border: 2px solid grey;
+                border-radius: 5px;
+                text-align: center;
+            }
+
+            QProgressBar::chunk {
+               background-color: #05B8CC;
+               width: 20px;
+            }""")
+
  
         # Создание горизонтального макета и добавление в него прогресс-бара
         progress_layout = QHBoxLayout()
@@ -108,8 +118,8 @@ class ScanTab(QWidget):
         # Добавление progress_layout в основной макет
         layout.addLayout(progress_layout)
 
-    
-        # Подключить сигналы к слотам
+        
+       
         
 
 
@@ -182,10 +192,20 @@ class ScanTab(QWidget):
 
         self.setLayout(layout)
 
-    def update_progress_bar(self, scanned_ips):
-        self.progress_bar.setValue(scanned_ips)
+    def on_ip_range_changed(self, ip_range):
+        self.scan_thread = ScanThread(ip_range)
+        self.scan_thread.ip_scanned.connect(self.update_progress_bar)
 
-   
+    def update_progress_bar(self, scanned_ips, total_ips):
+        # Обновление прогресс-бара в соответствии с количеством отсканированных IP
+        # Вычисление процента завершения сканирования
+        percentage = (scanned_ips / total_ips) * 100
+        # Установка этого значения для прогресс-бара
+        self.progress_bar.setValue(percentage)
+
+  
+    
+     
 
     
     def start_scan_and_get_data(self):
@@ -364,11 +384,4 @@ class ScanTab(QWidget):
                 
 
 
-    def show_tooltip(self, row, column):
-        item = self.table.item(row, column)
-        if item is not None:
-            ip = item.text()
-            detailed_info = self.open_ports.get(ip, {}).get('STATS', [])
-            if detailed_info:
-                self.detailed_info_widget.update_info(detailed_info[0])
-                self.detailed_info_widget.show()
+   
