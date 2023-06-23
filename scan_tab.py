@@ -40,12 +40,10 @@ class ScanTab(QWidget):
         self.open_ports = {}  # инициализация open_ports как пустого словаря
         layout = QVBoxLayout()
 
-        self.settings_tab.ip_range_changed.connect(self.on_ip_range_changed)
 
-        ip_range = self.get_ip_range()  # получить ip_range откуда-то
-        self.scan_thread = ScanThread(ip_range)
+    
+      
 
-        self.scan_thread.ip_scanned.connect(self.update_progress_bar)  # подключаем сигнал к слоту обновления прогресс-бара
 
 
         button_layout = QHBoxLayout()
