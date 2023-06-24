@@ -40,17 +40,10 @@ class ScanTab(QWidget):
         self.open_ports = {}  # инициализация open_ports как пустого словаря
         layout = QVBoxLayout()
 
-
-    
-      
-
-
-
         button_layout = QHBoxLayout()
         button_layout.setContentsMargins(0, -10, 0, 0)
 
         self.detailed_info_widget = DetailedInfoWidget()
-
 
         self.scan_button = QPushButton("Scan")
         self.scan_button.clicked.connect(self.start_scan_and_get_data)
@@ -115,11 +108,11 @@ class ScanTab(QWidget):
 
         # Добавление progress_layout в основной макет
         layout.addLayout(progress_layout)
+         
+        # Подключение сигнала к слоту
+        self.update_table_signal.connect(self.update_table)
 
-        
-       
-        
-
+        self.setLayout(layout)
 
         
         self.table = QTableWidget(254, 12, self)  # Измените число столбцов на 11
@@ -185,27 +178,18 @@ class ScanTab(QWidget):
             }
         """)
 
-        # Подключение сигнала к слоту
-        self.update_table_signal.connect(self.update_table)
+        
 
-        self.setLayout(layout)
+   
 
-    def on_ip_range_changed(self, ip_range):
-        self.scan_thread = ScanThread(ip_range)
-        self.scan_thread.ip_scanned.connect(self.update_progress_bar)
-
-    def update_progress_bar(self, scanned_ips, total_ips):
-        # Обновление прогресс-бара в соответствии с количеством отсканированных IP
-        # Вычисление процента завершения сканирования
-        percentage = (scanned_ips / total_ips) * 100
+    # Функция для обновления прогресс-бара
+    def update_progress_bar(self, scanned_ips):
+        
         # Установка этого значения для прогресс-бара
-        self.progress_bar.setValue(percentage)
+        self.progress_bar.setValue(scanned_ips)
 
-  
-    
-     
 
-    
+
     def start_scan_and_get_data(self):
         # Чтение диапазона IP из файла
         with open('ip.txt', 'r') as f:
@@ -232,7 +216,7 @@ class ScanTab(QWidget):
         self.scan_thread.start()
 
 
-    # Вызывается, когда фоновый поток завершает сканирование
+     # Вызывается, когда фоновый поток завершает сканирование
     def on_scan_completed(self, open_ports, total_miners):
         print(open_ports) 
         print("on_scan_completed вызван")

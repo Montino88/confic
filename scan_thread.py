@@ -26,7 +26,6 @@ class ScanThread(QThread):
     finished = pyqtSignal(dict, int)  # сигнал, который будет отправлять данные при завершении потока
     miner_found = pyqtSignal(dict, int)  # новый сигнал, который будет отправляться каждый раз, когда найден новый майнер
 
-
     def __init__(self, ip_range):
         super().__init__()
         self.ip_range = ip_range
