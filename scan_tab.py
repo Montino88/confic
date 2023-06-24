@@ -32,8 +32,12 @@ def convert_seconds_to_time_string(seconds):
 
 class ScanTab(QWidget):
     update_table_signal = pyqtSignal(dict, int)  # Новый сигнал
+    finished = pyqtSignal(dict, int)  # сигнал, который будет отправлять данные при завершении потока
+    miner_found = pyqtSignal(dict, int)  # новый сигнал, который будет отправляться каждый раз, когда найден новый майнер
+
 
     def __init__(self, parent=None):
+    
         super(ScanTab, self).__init__(parent)
         self.scan_thread = None
         self.miner_rows = {}  # словарь для хранения строк таблицы для каждого майнера
@@ -109,8 +113,7 @@ class ScanTab(QWidget):
         # Добавление progress_layout в основной макет
         layout.addLayout(progress_layout)
          
-        # Подключение сигнала к слоту
-        self.update_table_signal.connect(self.update_table)
+        
 
         self.setLayout(layout)
 
@@ -178,42 +181,39 @@ class ScanTab(QWidget):
             }
         """)
 
-        
 
    
 
-    # Функция для обновления прогресс-бара
-    def update_progress_bar(self, scanned_ips):
-        
-        # Установка этого значения для прогресс-бара
-        self.progress_bar.setValue(scanned_ips)
-
+    def update_progress_bar(self, scanned_ranges):
+        self.progress_bar.setValue(scanned_ranges / len(self.ip_ranges) * 100)
 
 
     def start_scan_and_get_data(self):
         # Чтение диапазона IP из файла
         with open('ip.txt', 'r') as f:
-            ip_range = f.read().strip()
-
+             ip_range = f.read().strip()
         # Разбиваем строку на список по запятым или пробелам
         cidr_ranges = ip_range.replace(',', ' ').split()
-
         # Развертывание CIDR-диапазонов в список IP-адресов
         ip_list = []
         for cidr in cidr_ranges:
             ip_list.extend(expand_cidr_range(cidr))
-
-        print("IP list:", ip_list)  # после вызова функции expand_cidr_range
-
+        print("IP list:", ip_list) # после вызова функции expand_cidr_range
         # Установите максимальное значение прогресс-бара равным количеству IP-адресов
         self.progress_bar.setMaximum(len(ip_list))
+        self.scan_thread = ScanThread(ip_range)
+        self.update_table_signal.connect(self.update_table)
+        self.scan_thread.update_progress_signal.connect(self.update_progress_bar)
+
+
 
         # Создание и запуск потока
         self.scan_thread = ScanThread(ip_list)
-        self.scan_thread.finished.connect(self.on_scan_completed)  # подключение сигнала к слоту
-        self.scan_thread.miner_found.connect(self.update_table)  # подключаем новый сигнал к методу update_table
-        self.scan_thread.ip_scanned.connect(self.update_progress_bar)  # подключаем сигнал к слоту обновления прогресс-бара
+        self.scan_thread.finished.connect(self.on_scan_completed) # подключение сигнала к слоту
+        self.scan_thread.miner_found.connect(self.update_table) # подключаем новый сигнал к методу update_table
+        self.scan_thread.update_progress_signal.connect(self.update_progress_bar)
         self.scan_thread.start()
+
 
 
      # Вызывается, когда фоновый поток завершает сканирование
