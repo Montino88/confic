@@ -12,8 +12,6 @@ from settings_tab import SettingsTab
 from PyQt5.QtCore import QTimer
 
 
-    
-   
 class ClickableWidget(QWidget):
     clicked = pyqtSignal()
 

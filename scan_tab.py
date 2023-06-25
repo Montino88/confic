@@ -13,8 +13,6 @@ from detailed_tooltip import DetailedInfoWidget
 
 
 
-
-
 def expand_cidr_range(cidr):
         try:
             network = ipaddress.ip_network(cidr, strict=False)
@@ -32,12 +30,8 @@ def convert_seconds_to_time_string(seconds):
 
 class ScanTab(QWidget):
     update_table_signal = pyqtSignal(dict, int)  # Новый сигнал
-    finished = pyqtSignal(dict, int)  # сигнал, который будет отправлять данные при завершении потока
-    miner_found = pyqtSignal(dict, int)  # новый сигнал, который будет отправляться каждый раз, когда найден новый майнер
-
 
     def __init__(self, parent=None):
-    
         super(ScanTab, self).__init__(parent)
         self.scan_thread = None
         self.miner_rows = {}  # словарь для хранения строк таблицы для каждого майнера
@@ -48,6 +42,7 @@ class ScanTab(QWidget):
         button_layout.setContentsMargins(0, -10, 0, 0)
 
         self.detailed_info_widget = DetailedInfoWidget()
+
 
         self.scan_button = QPushButton("Scan")
         self.scan_button.clicked.connect(self.start_scan_and_get_data)
@@ -63,7 +58,7 @@ class ScanTab(QWidget):
                 color: white;
                 border: 2px solid #555555;
                 border-radius: 10px;
-                background: #4671D5;
+                background: #grey;
                 padding: 5px;
             }
             QPushButton:hover {
@@ -86,7 +81,7 @@ class ScanTab(QWidget):
         
         layout.addLayout(button_layout)
 
-        # Создание прогресс-бара
+      # Создание прогресс-бара
         self.progress_bar = QProgressBar(self)
         self.progress_bar.setRange(0, 100)  # Устанавливаем диапазон от 0 до 100
         self.progress_bar.setTextVisible(True)  # Включаем отображение текста
@@ -94,7 +89,7 @@ class ScanTab(QWidget):
         # Стилизуем прогресс-бар с помощью CSS
         self.progress_bar.setStyleSheet("""
             QProgressBar {
-                border: 2px solid grey;
+                border: 2px solid 262F34;
                 border-radius: 5px;
                 text-align: center;
             }
@@ -112,12 +107,9 @@ class ScanTab(QWidget):
 
         # Добавление progress_layout в основной макет
         layout.addLayout(progress_layout)
-         
-        
 
-        self.setLayout(layout)
-
-        
+    
+        # Подключить сигналы к слотам
         self.table = QTableWidget(254, 12, self)  # Измените число столбцов на 11
         self.table.setHorizontalHeaderLabels(["", "IP", "Type", "GHS av", "GHS 5s", "Elapsed", "fan_speed", "%pwm%", "Temp PCB", "Temp Chip" , "CompileTime", ])  # Добавьте новые заголовки
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
@@ -181,42 +173,45 @@ class ScanTab(QWidget):
             }
         """)
 
+        # Подключение сигнала к слоту
+        self.update_table_signal.connect(self.update_table)
 
+        self.setLayout(layout)
+
+    def update_progress_bar(self, scanned_ips):
+        self.progress_bar.setValue(scanned_ips)
    
 
-    def update_progress_bar(self, scanned_ranges):
-        self.progress_bar.setValue(scanned_ranges / len(self.ip_ranges) * 100)
-
-
+    
     def start_scan_and_get_data(self):
         # Чтение диапазона IP из файла
         with open('ip.txt', 'r') as f:
-             ip_range = f.read().strip()
+            ip_range = f.read().strip()
+
+       
+        # Разбиваем строку на список по запятым или пробелам
+        ip_list = ip_range.replace(',', ' ').split()
+
         # Разбиваем строку на список по запятым или пробелам
         cidr_ranges = ip_range.replace(',', ' ').split()
+
         # Развертывание CIDR-диапазонов в список IP-адресов
         ip_list = []
         for cidr in cidr_ranges:
             ip_list.extend(expand_cidr_range(cidr))
-        print("IP list:", ip_list) # после вызова функции expand_cidr_range
+
         # Установите максимальное значение прогресс-бара равным количеству IP-адресов
         self.progress_bar.setMaximum(len(ip_list))
-        self.scan_thread = ScanThread(ip_range)
-        self.update_table_signal.connect(self.update_table)
-        self.scan_thread.update_progress_signal.connect(self.update_progress_bar)
-
-
 
         # Создание и запуск потока
         self.scan_thread = ScanThread(ip_list)
-        self.scan_thread.finished.connect(self.on_scan_completed) # подключение сигнала к слоту
-        self.scan_thread.miner_found.connect(self.update_table) # подключаем новый сигнал к методу update_table
-        self.scan_thread.update_progress_signal.connect(self.update_progress_bar)
+        self.scan_thread.finished.connect(self.on_scan_completed)  # подключение сигнала к слоту
+        self.scan_thread.miner_found.connect(self.update_table)  # подключаем новый сигнал к методу update_table
+        self.scan_thread.ip_scanned.connect(self.update_progress_bar)  # подключаем сигнал к слоту обновления прогресс-бара
         self.scan_thread.start()
 
 
-
-     # Вызывается, когда фоновый поток завершает сканирование
+    # Вызывается, когда фоновый поток завершает сканирование
     def on_scan_completed(self, open_ports, total_miners):
         print(open_ports) 
         print("on_scan_completed вызван")
@@ -224,28 +219,10 @@ class ScanTab(QWidget):
         self.update_table_signal.emit(open_ports, total_miners)
 
     def update_table(self, open_ports, total_miners):
-        try:
-            # Перебираем все открытые порты и соответствующие им данные
-            for ip, data in open_ports.items():
-                if ip not in self.miner_rows:
-                    row = self.table.rowCount()
-                    self.table.insertRow(row)
-                    self.miner_rows[ip] = row
-                else:
-                    row = self.miner_rows[ip]
+        print("update_table вызвана")
 
-                # Заполнение ячеек таблицы данными
-                for column, value in enumerate(data, start=1):
-                    item = QTableWidgetItem(str(value))
-                    self.table.setItem(row, column, item)
-        except Exception as e:
-            print(f"Exception: {e}")
-            traceback.print_exc()
-
-        print("Таблица обновлена")
-        print(f"Найдено ASIC: {total_miners}")
-
-
+        # Проверяем содержимое open_ports на входе
+        print("open_ports:", open_ports)
 
         try:
             # Перебираем все открытые порты и соответствующие им данные
@@ -271,16 +248,21 @@ class ScanTab(QWidget):
                 # IP
                 item = QTableWidgetItem(ip)
                 item.setTextAlignment(Qt.AlignCenter)  # Выровнять текст по центру
-                self.table.setItem(0, 1, item)
+                self.table.setItem(0, 0, item)
                 print(f"Установлен IP: {ip}")
 
                 # Type
                 if 'Type' in stats_data[0]:
                     print(f"Type для {ip}: {stats_data[0]['Type']}")
-                    self.table.setItem(0, 2, QTableWidgetItem(stats_data[0]['Type']))
+                    self.table.setItem(0, 1, QTableWidgetItem(stats_data[0]['Type']))
                     print(f"Установлен Type: {stats_data[0]['Type']}")
 
-                
+                # CompileTime
+                if 'CompileTime' in stats_data[0]:
+                    print(f"CompileTime для {ip}: {stats_data[0]['CompileTime']}")
+                    self.table.setItem(0, 2, QTableWidgetItem(stats_data[0]['CompileTime']))
+                    print(f"Установлен CompileTime: {stats_data[0]['CompileTime']}")
+
                 if len(stats_data) > 1:
                     detailed_stats = stats_data[1]
 
