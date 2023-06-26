@@ -132,9 +132,8 @@ class ScanTab(QWidget):
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         
 
-        for i in range(254):
-            checkbox = QCheckBox()
-            self.table.setCellWidget(i, 0, checkbox)
+        
+
 
         self.table.setSelectionMode(QAbstractItemView.NoSelection)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -223,6 +222,8 @@ class ScanTab(QWidget):
         print("on_scan_completed вызван")
         # Отправляем сигнал с данными в главный поток
         self.update_table_signal.emit(open_ports, total_miners)
+         # Добавляем уведомление о завершении сканирования
+        QMessageBox.information(self, "Scan Finished", f"Scanning finished. Found {total_miners} devices.")
 
     def update_table(self, open_ports, total_miners):
         print("update_table вызвана")
@@ -246,29 +247,29 @@ class ScanTab(QWidget):
                     continue
 
                 # Добавляем новую строку в таблицу в начало
-                self.table.insertRow(0)
+                self.table.insertRow(1)
                 print(f"Добавлена строка для {ip}")
+
+                # Добавляем чекбокс в новую строку
+                checkbox = QCheckBox()
+                self.table.setCellWidget(1, 0, checkbox)
+
 
                 # Заполняем ячейки значениями
 
                 # IP
                 item = QTableWidgetItem(ip)
                 item.setTextAlignment(Qt.AlignCenter)  # Выровнять текст по центру
-                self.table.setItem(0, 0, item)
+                self.table.setItem(1, 1, item)
                 print(f"Установлен IP: {ip}")
 
                 # Type
                 if 'Type' in stats_data[0]:
                     print(f"Type для {ip}: {stats_data[0]['Type']}")
-                    self.table.setItem(0, 1, QTableWidgetItem(stats_data[0]['Type']))
+                    self.table.setItem(1, 2, QTableWidgetItem(stats_data[0]['Type']))
                     print(f"Установлен Type: {stats_data[0]['Type']}")
 
-                # CompileTime
-                if 'CompileTime' in stats_data[0]:
-                    print(f"CompileTime для {ip}: {stats_data[0]['CompileTime']}")
-                    self.table.setItem(0, 2, QTableWidgetItem(stats_data[0]['CompileTime']))
-                    print(f"Установлен CompileTime: {stats_data[0]['CompileTime']}")
-
+               
                 if len(stats_data) > 1:
                     detailed_stats = stats_data[1]
 
@@ -276,21 +277,21 @@ class ScanTab(QWidget):
                 if 'GHS av' in detailed_stats:
                     item = QTableWidgetItem(str(detailed_stats['GHS av']))
                     item.setTextAlignment(Qt.AlignCenter)  # Выровнять текст по центру
-                    self.table.setItem(0, 3, item)
+                    self.table.setItem(1, 3, item)
                     print(f"Установлен GHS av: {detailed_stats['GHS av']}")
 
                 # GHS 5s
                 if 'GHS 5s' in detailed_stats:
                     item = QTableWidgetItem(str(detailed_stats['GHS 5s']))
                     item.setTextAlignment(Qt.AlignCenter)  # Выровнять текст по центру
-                    self.table.setItem(0, 4, item)
+                    self.table.setItem(1, 4, item)
                     print(f"Установлен GHS 5s: {detailed_stats['GHS 5s']}")
 
                 # Elapsed
                 if 'Elapsed' in detailed_stats:
                     elapsed_seconds = int(detailed_stats['Elapsed'])
                     elapsed_time = convert_seconds_to_time_string(elapsed_seconds)  # Предполагая, что у вас есть соответствующая функция
-                    self.table.setItem(0, 5, QTableWidgetItem(elapsed_time))
+                    self.table.setItem(1, 5, QTableWidgetItem(elapsed_time))
                     print(f"Установлен Elapsed: {elapsed_time}")
   
                 # fan_speed
@@ -302,7 +303,7 @@ class ScanTab(QWidget):
                         if fan_key in detailed_stats:
                             fans.append(str(detailed_stats[fan_key]))
                             fans_str = "/".join(fans)
-                            self.table.setItem(0, 6, QTableWidgetItem(fans_str))
+                            self.table.setItem(1, 6, QTableWidgetItem(fans_str))
                             self.table.setColumnWidth(6, 125)  # Установить ширину столбца
                             print(f"Установлены скорости вентиляторов: {fans_str}")
 
@@ -312,7 +313,7 @@ class ScanTab(QWidget):
                     item = QTableWidgetItem(f"{detailed_stats['fan_pwm']}%")
                     item.setTextAlignment(Qt.AlignCenter)  # Выровнять текст по центру
                     self.table.setColumnWidth(7, 50)  # Установить ширину столбца fan_pwm равной 50
-                    self.table.setItem(0, 7, item)
+                    self.table.setItem(1, 7, item)
                     print(f"Установлена скорость вентилятора: {detailed_stats['fan_pwm']}")
 
                 # temp плат
@@ -320,7 +321,7 @@ class ScanTab(QWidget):
                     temps = [detailed_stats['temp1'], detailed_stats['temp2'], detailed_stats['temp3']]
                     item = QTableWidgetItem(f"{temps[0]}/{temps[1]}/{temps[2]}")
                     item.setTextAlignment(Qt.AlignCenter)  # Выровнять текст по центру
-                    self.table.setItem(0, 8, item)
+                    self.table.setItem(1, 8, item)
                     print(f"Установлена температура плат: {temps[0]}/{temps[1]}/{temps[2]}")
 
                 # temp чипов
@@ -328,13 +329,13 @@ class ScanTab(QWidget):
                     temps = [detailed_stats['temp2_1'], detailed_stats['temp2_2'], detailed_stats['temp2_3']]
                     item = QTableWidgetItem(f"{temps[0]}/{temps[1]}/{temps[2]}")
                     item.setTextAlignment(Qt.AlignCenter)  # Выровнять текст по центру
-                    self.table.setItem(0, 9, item)
+                    self.table.setItem(1, 9, item)
                     print(f"Установлена температура плат: {temps[0]}/{temps[1]}/{temps[2]}")     
                 
                 # CompileTime
                 if 'CompileTime' in stats_data[0]:
                     print(f"CompileTime для {ip}: {stats_data[0]['CompileTime']}")
-                    self.table.setItem(0, 10, QTableWidgetItem(stats_data[0]['CompileTime']))
+                    self.table.setItem(1, 10, QTableWidgetItem(stats_data[0]['CompileTime']))
                     print(f"Установлен CompileTime: {stats_data[0]['CompileTime']}")
      
 
@@ -351,10 +352,6 @@ class ScanTab(QWidget):
                     
 
                 self.table.cellClicked.connect(self.show_tooltip)  # Подключить сигнал к слоту
-
-
-    def on_scan_finished(self, open_ports, total_miners):
-        QMessageBox.information(self, "Scan Finished", f"Scanning finished. Found {total_miners} devices.")            
 
 
    
