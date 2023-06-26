@@ -200,15 +200,21 @@ class ScanTab(QWidget):
         for cidr in cidr_ranges:
             ip_list.extend(expand_cidr_range(cidr))
 
+        
+
         # Установите максимальное значение прогресс-бара равным количеству IP-адресов
         self.progress_bar.setMaximum(len(ip_list))
-
+     
         # Создание и запуск потока
         self.scan_thread = ScanThread(ip_list)
         self.scan_thread.finished.connect(self.on_scan_completed)  # подключение сигнала к слоту
         self.scan_thread.miner_found.connect(self.update_table)  # подключаем новый сигнал к методу update_table
         self.scan_thread.ip_scanned.connect(self.update_progress_bar)  # подключаем сигнал к слоту обновления прогресс-бара
         self.scan_thread.start()
+        
+  
+       
+
 
 
     # Вызывается, когда фоновый поток завершает сканирование
@@ -345,7 +351,10 @@ class ScanTab(QWidget):
                     
 
                 self.table.cellClicked.connect(self.show_tooltip)  # Подключить сигнал к слоту
-                
+
+
+    def on_scan_finished(self, open_ports, total_miners):
+        QMessageBox.information(self, "Scan Finished", f"Scanning finished. Found {total_miners} devices.")            
 
 
    

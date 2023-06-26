@@ -40,7 +40,7 @@ class ScanThread(QThread):
         open_ports = {}
         total_miners = 0
         scanned_ips = 0
-        last_update_time = time.time()
+
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=100) as executor:
             future_to_ip = {executor.submit(send_command, command, ip): ip for ip in ip_range}
@@ -51,13 +51,12 @@ class ScanThread(QThread):
                     data['IP'] = ip
                     open_ports[ip] = data
                     total_miners += 1
+                except Exception as exc:
+                    print(f"Error scanning IP {ip}: {exc}")
+                finally:    
                     scanned_ips += 1
                     self.ip_scanned.emit(scanned_ips)
-                    current_time = time.time()
-                    if current_time - last_update_time >= 5:  # отправляем сигнал каждые 5 секунд
-                        self.miner_found.emit(open_ports, total_miners)
-                        last_update_time = current_time
-                except Exception as exc:
+
                     pass
 
         return open_ports, total_miners
