@@ -1,16 +1,41 @@
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QSpacerItem, QSizePolicy, QTableWidget, QHeaderView, QAbstractItemView, QCheckBox, QLabel, QProgressBar
 from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import QDialog, QVBoxLayout, QLabel, QPushButton, QFileDialog
+
 from PyQt5.QtGui import QPalette, QColor
 from PyQt5.QtWidgets import QTableWidgetItem
 from PyQt5.QtCore import QThread, pyqtSignal
 from PyQt5.QtWidgets import QApplication
 from PyQt5.QtCore import QTimer
 from PyQt5.QtWidgets import QMessageBox
+from PyQt5.QtWidgets import QCheckBox
 import traceback
 from scan_thread import ScanThread
 import ipaddress
 from detailed_tooltip import DetailedInfoWidget
 
+class UpgradeDialog(QDialog):
+    def __init__(self, parent=None):
+        super(UpgradeDialog, self).__init__(parent)
+
+        layout = QVBoxLayout()
+
+        self.label = QLabel("Selected rows: 0")
+        layout.addWidget(self.label)
+
+        self.upgrade_button = QPushButton("Start Upgrade")
+        self.upgrade_button.clicked.connect(self.upgrade_firmware)
+        layout.addWidget(self.upgrade_button)
+
+        self.setLayout(layout)
+
+    def upgrade_firmware(self):
+        firmware_file, _ = QFileDialog.getOpenFileName(self, "Open Firmware File")
+        if not firmware_file:
+            return
+
+        QMessageBox.information(self, "Upgrade", f"Upgrading with {firmware_file}.")
+        # Здесь вы можете добавить код для обновления прошивки
 
 
 def expand_cidr_range(cidr):
@@ -46,10 +71,11 @@ class ScanTab(QWidget):
 
         self.scan_button = QPushButton("Scan")
         self.scan_button.clicked.connect(self.start_scan_and_get_data)
-
         self.monitor_button = QPushButton("Monitor")
         self.asic_search_button = QPushButton("ASIC Search")
         self.update_button = QPushButton("Update")
+        self.update_button.clicked.connect(self.show_upgrade_dialog)
+        button_layout.addWidget(self.update_button)
 
         self.row_count = 0
 
@@ -111,6 +137,8 @@ class ScanTab(QWidget):
     
         # Подключить сигналы к слотам
         self.table = QTableWidget(254, 12, self)  # Измените число столбцов на 11
+        self.table.setColumnWidth(0, 10)  # Устанавливаем ширину первого столбца в 30 пикселей
+
         self.table.setHorizontalHeaderLabels(["", "IP", "Type", "GHS av", "GHS 5s", "Elapsed", "fan_speed", "%pwm%", "Temp PCB", "Temp Chip" , "CompileTime", ])  # Добавьте новые заголовки
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Fixed)
@@ -212,7 +240,7 @@ class ScanTab(QWidget):
         self.scan_thread.start()
         
   
-       
+    
 
 
 
@@ -225,6 +253,22 @@ class ScanTab(QWidget):
          # Добавляем уведомление о завершении сканирования
         QMessageBox.information(self, "Scan Finished", f"Scanning finished. Found {total_miners} devices.")
 
+    def show_upgrade_dialog(self):
+        selected_rows = []
+        for i in range(self.table.rowCount()):
+            item = self.table.item(i, 0)
+            if item is not None and item.checkState() == Qt.Checked:
+                selected_rows.append(i)
+
+        if not selected_rows:
+            QMessageBox.information(self, "No Selection", "Please select a row to upgrade.")
+            return
+
+        dialog = UpgradeDialog(self)
+        dialog.label.setText(f"Selected rows: {len(selected_rows)}")
+        dialog.exec_()
+    
+   
     def update_table(self, open_ports, total_miners):
         print("update_table вызвана")
 
@@ -247,14 +291,14 @@ class ScanTab(QWidget):
                     continue
 
                 # Добавляем новую строку в таблицу в начало
-                self.table.insertRow(1)
+                self.table.insertRow(0)
                 print(f"Добавлена строка для {ip}")
 
                 # Добавляем чекбокс в новую строку
-                checkbox = QCheckBox()
-                self.table.setCellWidget(1, 0, checkbox)
-
-
+                item = QTableWidgetItem()
+                item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
+                item.setCheckState(Qt.Unchecked)
+                self.table.setItem(0, 0, item)
                 # Заполняем ячейки значениями
 
                 # IP
@@ -353,5 +397,4 @@ class ScanTab(QWidget):
 
                 self.table.cellClicked.connect(self.show_tooltip)  # Подключить сигнал к слоту
 
-
-   
+    
