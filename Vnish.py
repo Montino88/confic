@@ -11,6 +11,22 @@ from Config_tab import ConfigTab
 from settings_tab import SettingsTab
 from PyQt5.QtCore import QTimer
 
+LIGHT_STYLE = """
+QWidget {
+    background-color: #f0f0f0;
+    color: black;
+}
+"""
+
+DARK_STYLE = """
+QWidget {
+    background-color: #333;
+    color: white;
+}
+"""
+
+
+
 
 class ClickableWidget(QWidget):
     clicked = pyqtSignal()
@@ -24,7 +40,7 @@ class IconLabelWidget(ClickableWidget):
     def __init__(self, icon_path, text, link=None):
         super().__init__()
         self.link = link
-
+       
         layout = QVBoxLayout()
         layout.setContentsMargins(10,10,10,10)
 
@@ -48,13 +64,32 @@ class IconLabelWidget(ClickableWidget):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        #  все виджеты во время инициализации
+        self.current_theme = "LIGHT"
+        # Add a button to the main window to toggle theme
+        self.toggle_theme_button = QPushButton("Toggle Theme", self)
+        self.toggle_theme_button.clicked.connect(self.toggle_theme)
+        self.statusBar().addPermanentWidget(self.toggle_theme_button)  # Adding button to status bar for demonstration
+ 
+       
+
+        # Создайте все вкладки заранее
         self.scan_tab = ScanTab(self)
         self.monitor_tab = MonitorTab(self)
         self.table_tab = TableTab(self)
         self.config_tab = ConfigTab(self)
         self.settings_tab = SettingsTab(self)
-        
+
+        self.stack = QStackedWidget(self)
+
+        # Добавьте вкладки в стек
+        self.stack.addWidget(self.scan_tab)
+        self.stack.addWidget(self.monitor_tab)
+        self.stack.addWidget(self.table_tab)
+        self.stack.addWidget(self.config_tab)
+        self.stack.addWidget(self.settings_tab)
+
+        self.setCentralWidget(self.stack)
+
         # Сопоставление меню и виджетов
         self.tab_dict = {
             0: self.scan_tab,
@@ -63,25 +98,16 @@ class MainWindow(QMainWindow):
             3: self.config_tab,
             4: self.settings_tab
         }
-
-        # Добавление виджетов в стек
-        self.stack = QStackedWidget(self)
-        self.stack.addWidget(self.scan_tab)
-        self.stack.addWidget(self.monitor_tab)
-        self.stack.addWidget(self.table_tab)
-        self.stack.addWidget(self.config_tab)
-        self.stack.addWidget(self.settings_tab)
-        
-        self.setCentralWidget(self.stack)
+         # Инициализация текущей вкладки
+        self.current_tab = None
+        self.setWindowTitle("vnish.Tools")
 
         self.setStyleSheet("""
             QWidget {
                 background-color: #262F34;  /* Цвет фона всех виджетов */
                 color: white;  /* Цвет текста всех виджетов */
             }
-            QToolBar {
-                background-color: #262F34;  /* Цвет фона панели инструментов */
-            }
+           
             QDockWidget {
                 background: #4671D5;  /* Цвет фона DockWidget'ов */
             }
@@ -107,32 +133,26 @@ class MainWindow(QMainWindow):
             QScrollBar { 
                 width: 0px;  /* Ширина полосы прокрутки */
             } 
-        """)   
-
-
-
-        self.setWindowTitle("vnish.Tools")
+        """)
 
         self.list_widget = QListWidget()
         self.list_widget.setSelectionMode(QAbstractItemView.NoSelection)
         self.text_edit = QTextEdit()
 
+        base_path = "C:/Users/acer/Desktop/config/moniy/resources/"
+
+        self.add_menu_item("Scan", base_path + "scan.png", ScanTab)
+        self.add_menu_item("Monitor", base_path + "monitor.png", MonitorTab)
+        self.add_menu_item("Table", base_path + "table.png", TableTab)
+        self.add_menu_item("Config", base_path + "Config.png", ConfigTab)
+        self.add_menu_item("Settings", base_path + "setting.png", SettingsTab)
+        self.add_support_button("Support", base_path + "support.png")
         
-
-        self.add_menu_item("Scan", "C:/Users/acer/Desktop/config/moniy/scan.png", ScanTab)
-        self.add_menu_item("Monitor", "C:/Users/acer/Desktop/config/moniy/monitor.png", MonitorTab)
-        self.add_menu_item("Table", "C:/Users/acer/Desktop/config/moniy/table.png", TableTab)
-        self.add_menu_item("Config", "C:/Users/acer/Desktop/config/moniy/Config.png", ConfigTab)
-        self.add_menu_item("Settings", "C:/Users/acer/Desktop/config/moniy/setting.png", SettingsTab)
-
-        self.add_support_button("Support", "C:/Users/acer/Desktop/config/moniy/support.png")
 
         for _ in range(12):
             item = QListWidgetItem()
             item.setFlags(Qt.NoItemFlags)
             self.list_widget.addItem(item)
-
-       
 
         self.dock_widget = QDockWidget(self)
         self.dock_widget.setWidget(self.list_widget)
@@ -143,27 +163,62 @@ class MainWindow(QMainWindow):
         self.dock_widget.setFixedSize(120, 600)
 
         self.toggle_button = QPushButton()
-        self.toggle_button.setIcon(QIcon("C:/Users/acer/Desktop/config/moniy/menu.png"))  
-        self.toggle_button.setIconSize(QSize(32, 32))  
+        self.toggle_button.setIcon(QIcon("C:/Users/acer/Desktop/config/moniy/menu.png"))
+        self.toggle_button.setIconSize(QSize(32, 32))
         self.toggle_button.clicked.connect(self.toggle_dock_widget)
         self.toggle_button.setFocusPolicy(Qt.NoFocus)
         self.toggle_button.setFixedSize(40, 40)
-        self.toggle_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        
+        self.toggle_button.setStyleSheet("""
+            QPushButton {
+                border: none;  // Убираем границы
+                background-color: transparent;  // Делаем кнопку прозрачной
+                padding: 0;  // Убираем отступы
+                margin: 0;  // Убираем поля
+            }
+            QPushButton::hover {
+                background-color: transparent;  // Убедитесь, что при наведении кнопка остается прозрачной
+            } 
+        """)
 
         toolbar = QToolBar()
+        toolbar.setMovable(False)  # Отключаем возможность перемещения панели инструментов
         toolbar.addWidget(self.toggle_button)
         self.addToolBar(Qt.TopToolBarArea, toolbar)
-
-        self.setCentralWidget(self.text_edit)
 
         self.resize(800, 600)
 
         self.list_widget.itemClicked.connect(self.on_item_clicked)
         self.on_item_clicked(self.list_widget.item(0))  #Открытие  по дефолту «scan» при запуске
 
+        self.stack.currentChanged.connect(self.switch_tab)
+
     def on_item_clicked(self, item):
         item_index = self.list_widget.row(item)
-        self.stack.setCurrentIndex(item_index)    
+        self.stack.setCurrentIndex(item_index)
+        self.switch_tab(item_index)
+
+    def switch_tab(self, index):
+        # Если была открыта какая-то вкладка, сохранить ее данные
+        if self.current_tab is not None:
+            self.current_tab.save_data()
+
+        # Загрузить данные новой вкладки
+        new_tab = self.stack.widget(index)
+        new_tab.load_data()
+
+        # Обновить текущую вкладку
+        self.current_tab = new_tab
+
+    def toggle_theme(self):
+        print("Toggling theme...") 
+        if self.current_theme == "LIGHT":
+           self.setStyleSheet(DARK_STYLE)
+           self.current_theme = "DARK"
+        else:
+           self.setStyleSheet(LIGHT_STYLE)
+           self.current_theme = "LIGHT"
+
 
     def toggle_dock_widget(self):
         self.dock_widget.setVisible(not self.dock_widget.isVisible())
@@ -178,21 +233,16 @@ class MainWindow(QMainWindow):
         item_index = self.list_widget.row(item)
         self.tab_dict[item_index] = tab_class
 
-    def on_item_clicked(self, item):
-        item_index = self.list_widget.row(item)
-        tab_class = self.tab_dict.get(item_index)
-        if tab_class:
-            tab = tab_class(self)
-            self.setCentralWidget(tab)
-
     def add_support_button(self, text, icon_path):
-        button_widget = IconLabelWidget(icon_path, text, 'https://t.me/Vnish_Antminer_Firmware')
+        button_widget = IconLabelWidget(icon_path, text, '')
         button = QListWidgetItem()
         button.setSizeHint(button_widget.sizeHint())
         self.list_widget.addItem(button)
         self.list_widget.setItemWidget(button, button_widget)
 
 
+   
+                                          
 if __name__ == "__main__":
     app = QApplication(sys.argv)
 
