@@ -16,6 +16,7 @@ import ipaddress
 from PyQt5.QtWidgets import QScrollArea
 import json
 from PyQt5.QtGui import QColor
+from PyQt5.QtWidgets import QLabel, QTableWidgetItem
 
 
 class UpgradeDialog(QDialog):
@@ -42,13 +43,7 @@ class UpgradeDialog(QDialog):
         # Здесь вы можете добавить код для обновления прошивки
 
 
-def expand_cidr_range(cidr):
-        try:
-            network = ipaddress.ip_network(cidr, strict=False)
-            return [str(ip) for ip in network.hosts()]
-        except ValueError:
-            # В случае некорректного ввода, возвращаем пустой список
-            return []
+
         
 def convert_seconds_to_time_string(seconds):
         days, remainder = divmod(seconds, 86400)
@@ -187,7 +182,7 @@ class ScanTab(QWidget):
         
 
         # Настройки таблицы
-        self.table.setHorizontalHeaderLabels(["", "IP", "Status", "Type", "GHS avg", "GHS rt", "Elapsed", "fan_speed", "%pwm%", "Temp PCB", "Temp Chip" , "CompileTime", "Consumption/Watt ", "Cdvd" ])
+        self.table.setHorizontalHeaderLabels(["", "IP", "Status", "Type", "GHS avg", "GHS rt", "Elapsed", "fan_speed", "%pwm%", "Temp PCB", "Temp Chip" , "CompileTime", "Consumption/Watt ", "Cdvd", "Chip" ])
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Fixed)
         self.table.horizontalHeader().resizeSection(0,5)
@@ -243,26 +238,45 @@ class ScanTab(QWidget):
         self.progress_bar.setValue(scanned_ips)
    
 
-    
     def start_scan_and_get_data(self):
-    # Чтение диапазона IP из файла
-        with open('ip.txt', 'r') as f:
-            ip_ranges = f.read().strip().splitlines()
+        print("Начало функции start_scan_and_get_data")
 
-         # Развертывание CIDR-диапазонов в список IP-адресов
         ip_list = []
-        for cidr in ip_ranges:
-            ip_list.extend(expand_cidr_range(cidr))
 
-         # Установите максимальное значение прогресс-бара равным количеству IP-адресов
+        # Чтение IP из файлов
+        for idx in range(5):  # Предполагая, что у вас максимум 5 файлов
+            filename = f"ip{idx+1}.txt"
+            try:
+                with open(filename, 'r') as f:
+                    ip = f.read().strip()
+                    if ip:
+                        ip_list.append(ip)
+            except FileNotFoundError:
+               continue
+
+         # Удаление дубликатов
+        ip_list = list(set(ip_list))
+
+        # Выводим IP-адреса для отладки
+        print(f"IP addresses to scan: {ip_list}")
+
+        
+
+
+
+
+    # Установите максимальное значение прогресс-бара равным количеству IP-адресов
         self.progress_bar.setMaximum(len(ip_list))
 
-         # Создание и запуск потока
+    # Создание и запуск потока
         self.scan_thread = ScanThread(ip_list)
         self.scan_thread.finished.connect(self.on_scan_completed)  # подключение сигнала к слоту
         self.scan_thread.miner_found.connect(self.update_table)  # подключаем новый сигнал к методу update_table
         self.scan_thread.ip_scanned.connect(self.update_progress_bar)  # подключаем сигнал к слоту обновления прогресс-бара
         self.scan_thread.start()
+        print("Конец функции start_scan_and_get_data")
+  
+
 
        
     # Вызывается, когда фоновый поток завершает сканирование
@@ -304,20 +318,30 @@ class ScanTab(QWidget):
         blue_component = 0  # компонент синего цвета всегда равен 0
 
         return QColor(red_component, green_component, blue_component)
-
+    
+   
     
     def update_table(self, open_ports, total_miners):
 
         try:
             # Перебираем все открытые порты и соответствующие им данные
             for ip, data in open_ports.items():
+                print(open_ports)
+
 
                 # Извлекаем данные статистики
                 stats_data = data.get('STATS', [])
+                print(f"Обработка данных для IP {ip}: {stats_data}")
 
 
                 if not stats_data:
                     print(f"stats_data пуст для {ip}, пропускаем")
+                    continue
+
+                # Если GHS av и state отсутствуют, пропускаем обработку этого IP
+                detailed_stats = stats_data[1] if len(stats_data) > 1 else {}
+                if 'GHS av' not in detailed_stats and 'state' not in detailed_stats:
+                    print(f"Отсутствуют ключевые данные для {ip}, пропускаем")
                     continue
 
                 # Добавляем новую строку в таблицу в начало
@@ -343,11 +367,10 @@ class ScanTab(QWidget):
                     detailed_stats = stats_data[1]
 
 
-                # Status
-                if 'GHS av' in detailed_stats:
-                   if float(detailed_stats['GHS av']) > 0:
-                       status_text = "online"
-                       status_color = "#05B8CC"
+                #Status
+                if 'GHS av' in detailed_stats and float(detailed_stats['GHS av']) > 0:
+                    status_text = "online"
+                    status_color = "#05B8CC"
                 else:
                     status_text = detailed_stats.get('state', 'Unknown')
                     status_color = "red"
@@ -457,13 +480,36 @@ class ScanTab(QWidget):
                 # Устанавливаем значение ячейки
                 self.table.setItem(0, 13, QTableWidgetItem(cell_value))
 
+                def get_chip_status(chain_acs: str) -> str:
+                    if "0000" in chain_acs:
+                        return "✅ Нормально"
+                    elif "x" in chain_acs:
+                        return "❌ Не работает"
+                    elif "Overheated (chip)" in chain_acs:
+                        return "🔥 Перегрев"
+                    elif "Failed to detect ASIC chips" in chain_acs:
+                        return "⚠️ Чип не обнаружен"
+                    else:
+                        return "❓ Неизвестно"
+
+
+                chain_acs_values = [
+                    detailed_stats.get("chain_acs1", ""),
+                    detailed_stats.get("chain_acs2", ""),
+                    detailed_stats.get("chain_acs3", "")
+                ]   
+
+                for idx, chain_acs in enumerate(chain_acs_values, start=1):
+                    status = get_chip_status(chain_acs)
+                    status_label = QLabel(status)
+                    self.table.setCellWidget(0, 13 + idx, status_label)  # Предполагая, что столбец для статуса платы начинается с 14
 
 
 
         except Exception as e:
             print(f"Ошибка при обновлении таблицы: {e}")
 
-
+    
 
     def save_values(self):
         self.asic_values = []

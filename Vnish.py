@@ -25,10 +25,10 @@ QWidget {
 }
 """
 
-
-
-
 class ClickableWidget(QWidget):
+
+
+
     clicked = pyqtSignal()
 
     def mousePressEvent(self, event):
