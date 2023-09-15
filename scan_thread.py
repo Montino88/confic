@@ -136,13 +136,11 @@ async def send_model_specific_commands(ip: str, model_data: str):
         print(f"[Antminer ] IP: {ip} | Stats: {response_stats} | Pools: {response_pools}")
 
     elif "avalon" in model_data.lower():
-        response_version = await send_socket_command(ip, 4028, "version")
         response_pools = await send_socket_command(ip, 4028, "pools")
         response_estats = await send_socket_command(ip, 4028, "estats")
-        command_responses["version"] = response_version
         command_responses["pools"] = response_pools
         command_responses["estats"] = response_estats
-        print(f"[AVALON] IP: {ip} | Version: {response_version} | Pools: {response_pools} | Estats: {response_estats}")
+        print(f"[AVALON] IP: {ip} | | Pools: {response_pools} | Estats: {response_estats}")
 
     elif "whatsminer" in model_data.lower():
         response_devdetails = await send_socket_command(ip, 4028, "devdetails", json_format=True)
