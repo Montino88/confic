@@ -5,29 +5,15 @@ from PyQt5.QtWidgets import QApplication, QMainWindow, QDockWidget, QListWidget,
 from PyQt5.QtGui import QIcon
 from PyQt5.QtCore import Qt, QSize
 from monitor_tab import MonitorTab
-from scan_tab import ScanTab
+from scan_tab import ScanTab 
 from table_tab import TableTab
 from Config_tab import ConfigTab
 from settings_tab import SettingsTab
 from PyQt5.QtCore import QTimer
 
-LIGHT_STYLE = """
-QWidget {
-    background-color: #f0f0f0;
-    color: black;
-}
-"""
 
-DARK_STYLE = """
-QWidget {
-    background-color: #333;
-    color: white;
-}
-"""
 
 class ClickableWidget(QWidget):
-
-
 
     clicked = pyqtSignal()
 
@@ -60,17 +46,34 @@ class IconLabelWidget(ClickableWidget):
     def on_clicked(self):
         if self.link:
             webbrowser.open(self.link)
+    def __init__(self, icon_path, text, link=None):
+        super().__init__()
+        self.link = link
+       
+        layout = QVBoxLayout()
+        layout.setContentsMargins(10,10,10,10)
 
-class MainWindow(QMainWindow):
+        icon_label = QLabel()
+        icon_label.setPixmap(QIcon(icon_path).pixmap(24, 24))
+        icon_label.setAlignment(Qt.AlignCenter)
+                                                                                                                                  
+        text_label = QLabel(text)
+        text_label.setAlignment(Qt.AlignCenter)
+
+        layout.addWidget(icon_label)
+        layout.addWidget(text_label)
+
+        self.setLayout(layout)
+        self.clicked.connect(self.on_clicked)
+
+    def on_clicked(self):
+        if self.link:
+            webbrowser.open(self.link)
+
+class MainWindow(QMainWindow): 
     def __init__(self):
         super().__init__()
-        self.current_theme = "LIGHT"
-        # Add a button to the main window to toggle theme
-        self.toggle_theme_button = QPushButton("Toggle Theme", self)
-        self.toggle_theme_button.clicked.connect(self.toggle_theme)
-        self.statusBar().addPermanentWidget(self.toggle_theme_button)  # Adding button to status bar for demonstration
- 
-       
+
 
         # Создайте все вкладки заранее
         self.scan_tab = ScanTab(self)
@@ -90,6 +93,8 @@ class MainWindow(QMainWindow):
 
         self.setCentralWidget(self.stack)
 
+
+
         # Сопоставление меню и виджетов
         self.tab_dict = {
             0: self.scan_tab,
@@ -98,9 +103,19 @@ class MainWindow(QMainWindow):
             3: self.config_tab,
             4: self.settings_tab
         }
+
          # Инициализация текущей вкладки
         self.current_tab = None
         self.setWindowTitle("vnish.Tools")
+
+        # слоты 
+        self.scan_tab.send_to_monitoring_signal.connect(self.monitor_tab.receive_from_scan)
+        self.scan_tab.scan_finished_signal.connect(self.forward_scan_finished)
+
+
+
+
+
 
         self.setStyleSheet("""
             QWidget {
@@ -148,7 +163,6 @@ class MainWindow(QMainWindow):
         self.add_menu_item("Settings", base_path + "setting.png", SettingsTab)
         self.add_support_button("Support", base_path + "support.png")
         
-
         for _ in range(12):
             item = QListWidgetItem()
             item.setFlags(Qt.NoItemFlags)
@@ -181,6 +195,8 @@ class MainWindow(QMainWindow):
             } 
         """)
 
+        
+
         toolbar = QToolBar()
         toolbar.setMovable(False)  # Отключаем возможность перемещения панели инструментов
         toolbar.addWidget(self.toggle_button)
@@ -192,6 +208,10 @@ class MainWindow(QMainWindow):
         self.on_item_clicked(self.list_widget.item(0))  #Открытие  по дефолту «scan» при запуске
 
         self.stack.currentChanged.connect(self.switch_tab)
+
+        #мониторинг соедениние
+    def forward_scan_finished(self):
+        self.monitor_tab.receive_scan_finished()
 
     def on_item_clicked(self, item):
         item_index = self.list_widget.row(item)
@@ -210,14 +230,7 @@ class MainWindow(QMainWindow):
         # Обновить текущую вкладку
         self.current_tab = new_tab
 
-    def toggle_theme(self):
-        print("Toggling theme...") 
-        if self.current_theme == "LIGHT":
-           self.setStyleSheet(DARK_STYLE)
-           self.current_theme = "DARK"
-        else:
-           self.setStyleSheet(LIGHT_STYLE)
-           self.current_theme = "LIGHT"
+
 
 
     def toggle_dock_widget(self):
@@ -250,9 +263,4 @@ if __name__ == "__main__":
     main_window.show()
 
     sys.exit(app.exec_())
-    app = QApplication(sys.argv)
-
-    main_window = MainWindow()
-    main_window.show()
-
-    sys.exit(app.exec_())
+   

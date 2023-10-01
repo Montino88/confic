@@ -21,17 +21,28 @@ import re
 
 
 
-
+def convert_seconds_to_time_string(seconds):
+    days, remainder = divmod(seconds, 86400)
+    hours, remainder = divmod(remainder, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    return f"{days} d {hours} h {minutes} m {seconds} s"
 
 class ScanTab(QWidget):
     update_table_signal = pyqtSignal(dict, int)
-    monitoring_data_signal = pyqtSignal(dict)  # Сигнал для передачи данных мониторинга
     ip_processed_signal = pyqtSignal(dict, int)
+    
+
+    send_to_monitoring_signal = pyqtSignal(dict)  # мониторинг
+    scan_finished_signal = pyqtSignal()  # Сигнал, испускаться при завершении сканирования
+
+
 
 
 
     def __init__(self, parent=None):
         super(ScanTab, self).__init__(parent)
+        self.monitor_enabled = False  # флаг для отслеживания мониторинга
+
 
         self.scan_thread = None
 
@@ -41,14 +52,9 @@ class ScanTab(QWidget):
 
         self.ip_order = []  # Список для отслеживания порядка IP-адресов
 
-         # Create MonitorTab instance
-        self.monitor_tab = MonitorTab(scan_tab_reference=self)
-       
-
-        # Monitoring state
-        self.monitor_enabled = False
-
-       
+        # Создание экземпляра ScanThread
+        self.scan_thread = ScanThread(self)
+        
         layout = QVBoxLayout()
 
         button_layout = QHBoxLayout()
@@ -57,8 +63,9 @@ class ScanTab(QWidget):
         self.scan_button = QPushButton("Scan")
         self.scan_button.clicked.connect(self.start_scan_and_get_data)
 
-        self.monitor_button = QPushButton("Monitor")
+        self.monitor_button = QPushButton("Monitor", self)
         self.monitor_button.clicked.connect(self.start_stop_monitor)
+
 
         self.scan_timer = QTimer(self)
         self.scan_timer.timeout.connect(self.start_scan_and_get_data)
@@ -158,13 +165,12 @@ class ScanTab(QWidget):
 
         layout.addWidget(self.scrollArea)
 
-        self.table.setHorizontalHeaderLabels(["", "IP", "Status", "Type", "Ths avg", "Ths rt", "Elapsed", "fan_speed", "%pwm%", "Temp PCB", "Temp Chip" , "CompileTime", "power", "V/Mhz", "URL1", "User1", "Status1", "LStime1", "URL2", "User2", "Status2", "LStime2", "URL3", "User3", "Status3", "LStime3", ])
+        self.table.setHorizontalHeaderLabels(["", "IP", "Status", "Type", "Ths avg", "Ths rt", "Elapsed", "fan_speed", "Temp Chip" , "power", "CompileTime", "URL1", "User1", "Status1", "URL2", "User2", "Status2", "URL3", "User3", "Status3", ])
         self.table.setColumnWidth(0, 30)
         self.table.setColumnWidth(1, 100)
         self.table.setColumnWidth(2, 50)
-        self.table.setColumnWidth(8, 50)
-        self.table.setColumnWidth(13, 80)
-        self.table.setColumnWidth(8, 50)
+        self.table.setColumnWidth(8, 100)
+        self.table.setColumnWidth(13, 50)
         self.table.setColumnWidth(16, 50)
         self.table.setColumnWidth(20, 50)
         self.table.setColumnWidth(24, 50)
@@ -208,6 +214,7 @@ class ScanTab(QWidget):
         """)
        # Изменение цвета заголовка столбца
         header = self.table.horizontalHeader()
+
         header.setStyleSheet("""
             QHeaderView::section {
                 background-color: #424242;
@@ -216,12 +223,18 @@ class ScanTab(QWidget):
         """)
         # Подключение сигнала к слоту
         self.ip_processed_signal.connect(self.update_table)
-        self.update_table_signal.connect(self.update_table)
        
-
-
         # Устанавливаем основной макет
         self.setLayout(layout)
+
+        # Инициализация атрибута для отслеживания состояния мониторинга
+        self.monitor_enabled = False
+
+        # Инициализация таймера для регулярного сканирования
+        self.monitor_timer = QTimer(self)
+        self.monitor_timer.timeout.connect(self.start_scan_and_get_data)
+        self.monitor_timer.setInterval(120 * 1000)  # 60 секу
+
 
     def show_upgrade_dialog(self):
         upgrade_dialog = UpgradeDialog(self)
@@ -229,18 +242,22 @@ class ScanTab(QWidget):
 
     
     def start_stop_monitor(self):
-        """Start or stop the monitoring process."""
         if self.monitor_enabled:
             self.monitor_button.setStyleSheet("background-color: red")
-            self.monitor_tab.stop_monitor()
+            self.monitor_timer.stop()
         else:
             self.monitor_button.setStyleSheet("background-color: green")
-            self.monitor_tab.start_monitor()
+            self.monitor_timer.start()
+            self.start_scan_and_get_data()  # Запустим первое сканирование немедленно
         self.monitor_enabled = not self.monitor_enabled
 
+
+
     def start_scan_and_get_data(self):
+
+        print("start_scan_and_get_data method is called.")
         ip_list = []
-        # Чтение IP из файлов
+         # Чтение IP из файлов
         for idx in range(5):  # Предполагая, что у вас максимум 5 файлов
             filename = f"ip{idx+1}.txt"
             try:
@@ -250,20 +267,18 @@ class ScanTab(QWidget):
                        ip_list.append(ip)
             except FileNotFoundError:
                 continue
-        # Удаление дубликатов
+
+        print(f"[DEBUG] IPs extracted: {ip_list}")  # Добавлено
+
+         # Подключение сигналов
         ip_list = list(set(ip_list))
         self.scan_thread = ScanThread(ip_list)
-        
-         # Подключение сигналов
-        self.scan_thread.ip_processed_signal.connect(self.update_table)
-
-
-        self.scan_thread.monitoring_data_signal.connect(self.monitoring_data_signal.emit)
-        #  self.scan_thread.finished.connect(self.on_scan_completed)
-    
         self.scan_thread.start()
 
-        print("Конец функции start_scan_and_get_data")
+        self.scan_thread.ip_processed_signal.connect(self.update_table)
+        self.scan_thread.scan_finished_signal.connect(self.scan_finished)
+
+  
   
 
 
@@ -272,44 +287,47 @@ class ScanTab(QWidget):
         for row in range(self.table.rowCount()):
             item = self.table.item(row, 1)
             if item and item.text() == ip:
+                print(f"Found existing row for IP {ip} at index {row}")
                 return row
         # Если строка не найдена, создание новой строки
         row_for_ip = 0
         self.table.insertRow(row_for_ip)
+        print(f"Created new row for IP {ip} at index {row_for_ip}")
+
         return row_for_ip
     
 
 
 
     @pyqtSlot(dict)
-    def update_table(self, data):
-        print("update_table called!")
-        print("Data:", data)
+    def update_table(self, data):  
+        processed_data = {}  # Пустой словарь для обработанных данных
 
         if not data:
             print("No data provided to update_table.")
             return
 
         for ip, miner_data in data.items():
-            print(f"Processing data for IP {ip}: {miner_data}")
 
-            model = miner_data.get('model', '').upper()
-            if not model:
-                print(f"No model found for IP {ip}. Skipping...")
+            identification_key = miner_data.get('model', miner_data.get('driver', '')).upper()
+
+            if not identification_key:
                 continue
 
-            print(f"Identified model for IP {ip} is: {model}")
-    
-            if "ANTMINER" in model:
-                print(f"IP {ip} is an Antminer. Processing...")
+
+            if "ANTMINER" in identification_key:
                 self.process_antminer_data(ip, miner_data)
-            elif "AVALON" in model:
-                print(f"IP {ip} is an Avalon. Processing...")
+            elif "AVALON" in identification_key:
                 self.process_avalon_data(ip, miner_data)
+            elif 'BITMICRO' in identification_key:
+                self.process_bitmicro_data(ip, miner_data)
             else:
-                print(f"Unknown model '{model}' for IP {ip}")
+                print(f"Unknown model 'model' for IP {ip}")
+ 
 
+            
 
+            
 
 
     def convert_string_to_dict(self, data_str):
@@ -322,6 +340,15 @@ class ScanTab(QWidget):
             data_dict[key] = value
         return data_dict
     
+    def convert_string_to_dict2(self, data_str):
+        if isinstance(data_str, dict):
+            return data_str
+        try:
+            return json.loads(data_str)
+        except json.JSONDecodeError:
+            return None
+
+        
 
     def extract_pool_data(self, data):
         """
@@ -342,500 +369,10 @@ class ScanTab(QWidget):
             if pool_dict:
                 pool_list.append(pool_dict)
 
-        print(f"Returning pool_list: {pool_list}")  # Для диагностики
 
         return pool_list
     
     def process_estats(self, data):
-        """
-        Обрабатывает данные estats, возвращая словарь с данными от начала до "POOLS[0]".
-        """
-
-    # Extracting the 'response' for VERSION data
-        version_data = data.get('response', '')
-    # Splitting the version data based on '|'
-        version_sections = version_data.split('|')
-    # Extracting the first section for VERSION
-        version_string = version_sections[0]
-        version_items = version_string.split(',')
-        version_dict = {}
-        for item in version_items:
-            parts = item.split('=')
-            if len(parts) == 2:
-                key, value = parts
-                version_dict[key] = value
-
-    # Extracting estats data
-        estats_data = data.get('command_data', {}).get('estats', '')
-        estats_sections = estats_data.split('|')
-    # We are focusing on the first section that starts with 'STATS=0'
-        estats_string = next((section for section in estats_sections if section.startswith('STATS=0')), '')
-        estats_dict = self.extract_estats_data(estats_string)
-
-    # Remove PVT_T0, PVT_T1, PVT_T2 and everything after it
-        keys_after_pvts = False
-        for key in list(estats_dict.keys()):
-            if key in ['PVT_T0', 'PVT_T1', 'PVT_T2'] or keys_after_pvts:
-                del estats_dict[key]
-                keys_after_pvts = True
-
-    # Combining version and estats data
-        combined_data = {**version_dict, **estats_dict}
-
-        return combined_data
-
-
-    def parse_section(self, section):  
-        """
-        Parses a section and returns a dictionary.
-        """
-        items = section.split(',')
-        parsed_dict = {}
-        for item in items:
-            parts = item.split('=')
-            if len(parts) == 2:
-                key, value = parts
-                parsed_dict[key] = value
-        return parsed_dict
-
-
-    
-
-    
-    def extract_estats_data(self, estats_string):
-        """
-        Improved function to extract estats data from the provided estats_string.
-        """
-        data_dict = {}
-    
-        # Splitting the string based on ',' but ensuring that we don't split elements like "KEY=[...]"
-        parts = []
-        temp_part = ""
-        bracket_count = 0
-        for char in estats_string:
-            if char == '[':
-                bracket_count += 1
-            elif char == ']':
-                bracket_count -= 1
-            elif char == ',' and bracket_count == 0:
-                parts.append(temp_part.strip())
-                temp_part = ""
-                continue
-            temp_part += char
-        if temp_part:
-            parts.append(temp_part.strip())
-
-        # Processing each part for key=value structure
-        for part in parts:
-            key_value = part.split('=', 1)
-            if len(key_value) == 2:
-                key, value = key_value
-                data_dict[key] = value
-
-       
-        return data_dict
-
-    def extract_bracket_values(self, data):
-        pattern = re.compile(r'(\w+)\[(\d+\.\d+)]')  # Регулярное выражение для извлечения пар ключ-значение
-        return {match.group(1): match.group(2) for match in pattern.finditer(data)}
-
-
-
-    def process_avalon_data(self, ip, data):
-        print(f"--- Start Processing avalon data for IP {ip} ---")
-
-        if not isinstance(data, dict):
-            print(f"Error: Data for IP {ip} is not a dictionary. Received data: {data}")
-            return
-
-        row_for_ip = self.find_or_create_row(ip)
-        print(f"Row for IP {ip}: {row_for_ip}")
-
-        # Обработка данных estats
-        estats_results = self.process_estats(data)
-        print(f"Processed estats data for IP {ip}: {estats_results}")
-        # Debug: Print the entire estats results
-        print(f"Entire estats results for IP {ip}: {estats_results}")
-
-         # Преобразование строки 'response' в словарь
-        response_str = data.get('response', '')
-        stats_data = self.convert_string_to_dict(response_str)
-
-        # Combine estats_results and stats_data
-        detailed_stats = {**estats_results, **stats_data}
-        print("Detailed stats:", detailed_stats)
-        # Combine estats_results and stats_data
-
-      
-
-          # Извлекаем данные в квадратных скобках и добавляем их в detailed_stats
-        bracket_values = self.extract_bracket_values(str(detailed_stats))
-        detailed_stats = {**detailed_stats, **bracket_values}
-        print(self.extract_bracket_values(response_str))
-
-        if not detailed_stats:
-            print(f"No detailed stats found for IP {ip}. Exiting function.")
-            return
-   
-        # Извлекаем данные о пуле
-        pool_data = self.extract_pool_data(data)
-        print(f"Extracted pool data for IP {ip}: {pool_data}")
-
-            # Add checkbox only for a new row
-        item = QTableWidgetItem()
-        item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
-        item.setCheckState(Qt.Unchecked)
-        self.table.setItem(row_for_ip, 0, item)
-        print(f"Added checkbox for IP {ip} at row {row_for_ip}")
-
-         # IP
-        item = QTableWidgetItem(ip)
-        item.setTextAlignment(Qt.AlignCenter)  # Align text center
-        item.setToolTip(ip)  # Set tooltip
-        self.table.setItem(row_for_ip, 1, item)
-        print(f"IP address {ip} set in the table for row {row_for_ip}")
-
-        
-        if 'PROD' in stats_data:
-            self.table.setItem(row_for_ip, 3, QTableWidgetItem(stats_data['PROD']))
-            item.setTextAlignment(Qt.AlignCenter)  # Выровнять текст по центру
-        
-        # Теперь можно обращаться к GHSmm напрямую
-        if 'GHSmm' in detailed_stats:
-            item = QTableWidgetItem(detailed_stats['GHSmm'])
-            item.setTextAlignment(Qt.AlignCenter)  # Выровнять текст по центру
-            self.table.setItem(row_for_ip, 4, item)
-     
-
-        # Теперь можно обращаться к GHSmm напрямую
-        if 'GHSavg' in detailed_stats:
-            item = QTableWidgetItem(detailed_stats['GHSavg'])
-            item.setTextAlignment(Qt.AlignCenter)  # Выровнять текст по центру
-            self.table.setItem(row_for_ip, 5, item)
-
-        if 'Elapsed' in detailed_stats:
-            elapsed_seconds = int(detailed_stats['Elapsed'])
-            elapsed_time = convert_seconds_to_time_string(elapsed_seconds)
-            self.table.setItem(row_for_ip, 6, QTableWidgetItem(elapsed_time))
-
-        fan_keys = ['Fan1', 'Fan2', 'Fan3', 'Fan4']
-        fan_values = [detailed_stats[key] for key in fan_keys if key in detailed_stats]
-
-        fan_str = ", ".join(f"{key}={value}" for key, value in zip(fan_keys, fan_values))
-        print(fan_str)
-
-        if fan_str:
-            item = QTableWidgetItem(fan_str)
-            item.setTextAlignment(Qt.AlignCenter)  # Выровнять текст по центру
-            self.table.setItem(row_for_ip, 7, item)  
-            
-
-
-        if 'TAvg' in detailed_stats:
-            item = QTableWidgetItem(detailed_stats['TAvg'])
-            item.setTextAlignment(Qt.AlignCenter)  # Выровнять текст по центру
-            self.table.setItem(row_for_ip, 8, item)  
-
-        if 'MTavg' in detailed_stats:
-            mtavg_values = [detailed_stats[key] for key in ['MTavg'] if key in detailed_stats]
-            mtavg_str = ' / '.join(mtavg_values)
-    
-            if mtavg_str:
-               item = QTableWidgetItem(mtavg_str)
-               item.setTextAlignment(Qt.AlignCenter)  # Выровнять текст по центру
-               self.table.setItem(row_for_ip, 9, item) 
-
-        if 'Vo' in detailed_stats:
-            item = QTableWidgetItem(detailed_stats['Vo'])
-            item.setTextAlignment(Qt.AlignCenter)  # Выровнять текст по центру
-            self.table.setItem(row_for_ip, 11, item) 
-
-        # Define function to get the pool status symbol
-        def get_pool_status_symbol(status):
-            if status == "Alive":
-                return "✅"
-            elif status in ["Dead", "Stopped"]:
-                return "❌"
-            else:
-                return status
-
-        # If no pool data is found, print a message and return
-        if not pool_data:
-            print(f"Missing pools_data for IP {ip}")
-            return
-
-        # Since pool_data itself is the list of pools, you don't need to extract 'POOLS' from it
-        pools_list = pool_data
-        if not pools_list:
-            print(f"Missing POOLS list for IP {ip}")
-            return
-
-        for i, pool in enumerate(pools_list):
-            pool_url_item = QTableWidgetItem(pool.get('URL', 'N/A'))
-            pool_url_item.setTextAlignment(Qt.AlignCenter)
-            worker_item = QTableWidgetItem(pool.get('User', 'N/A'))
-            worker_item.setTextAlignment(Qt.AlignCenter)
-            status_symbol = get_pool_status_symbol(pool.get('Status', 'N/A'))
-            status_item = QTableWidgetItem(status_symbol)
-            status_item.setTextAlignment(Qt.AlignCenter)
-            last_share_time_item = QTableWidgetItem(pool.get('Last Share Time', 'N/A'))
-            last_share_time_item.setTextAlignment(Qt.AlignCenter)
-
-            base_column = 14 + i * 4
-            self.table.setItem(row_for_ip, base_column, pool_url_item)
-            self.table.setItem(row_for_ip, base_column + 1, worker_item)
-            self.table.setItem(row_for_ip, base_column + 2, status_item)
-            self.table.setItem(row_for_ip, base_column + 3, last_share_time_item)
-
-
-            print(f"--- Finished Processing Avalon data for IP {ip} ---")
-
-
-    def process_antminer_data(self, ip, data):
-        print(f"--- Start Processing Antminer data for IP {ip} ---")
-
-        # Check if data is a dictionary
-        if not isinstance(data, dict):
-            print(f"Error: Data for IP {ip} is not a dictionary. Received data: {data}")
-            return
-
-        row_for_ip = self.find_or_create_row(ip)
-        print(f"Row for IP {ip}: {row_for_ip}")
-
-        # Преобразование строки 'response' в словарь
-        response_str = data.get('response', '')
-        stats_data = self.convert_string_to_dict(response_str)
-
-        print(f"Extracted stats data for IP {ip}: {stats_data}")
-
-        detailed_stats = stats_data
-   
-        if not detailed_stats:
-            print(f"No detailed stats found for IP {ip}. Exiting function.")
-            return
-
-        # Extracting pool data
-        pool_data = self.extract_pool_data(data)
-        print(f"Extracted pool data for IP {ip}: {pool_data}")
-
-        # Add checkbox only for a new row
-        item = QTableWidgetItem()
-        item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
-        item.setCheckState(Qt.Unchecked)
-        self.table.setItem(row_for_ip, 0, item)
-        print(f"Checkbox added for IP {ip} at row {row_for_ip}")
-
-        # IP
-        item = QTableWidgetItem(ip)
-        item.setTextAlignment(Qt.AlignCenter)  # Align text center
-        item.setToolTip(ip)  # Set tooltip
-        self.table.setItem(row_for_ip, 1, item)
-        print(f"IP address {ip} set in the table for row {row_for_ip}")
-
-        if 'Type' in stats_data:
-            self.table.setItem(row_for_ip, 3, QTableWidgetItem(stats_data['Type']))
-            item.setTextAlignment(Qt.AlignCenter)  # Выровнять текст по центру
-
-        # GHS av
-        if 'GHS av' in detailed_stats:
-            item = QTableWidgetItem(str(detailed_stats['GHS av']))
-            item.setTextAlignment(Qt.AlignCenter)  # Выровнять текст по центру
-            self.table.setItem(row_for_ip, 4, item)
-
-        # GHS 5s
-        if 'GHS 5s' in detailed_stats:
-            item = QTableWidgetItem(str(detailed_stats['GHS 5s']))
-            item.setTextAlignment(Qt.AlignCenter)  # Выровнять текст по центру
-            self.table.setItem(row_for_ip, 5, item)
-
-        if 'Elapsed' in detailed_stats:
-            elapsed_seconds = int(detailed_stats['Elapsed'])
-            elapsed_time = convert_seconds_to_time_string(elapsed_seconds)
-            self.table.setItem(row_for_ip, 6, QTableWidgetItem(elapsed_time))
-
-        if 'fan_num' in detailed_stats:
-            fan_num = int(detailed_stats['fan_num'])
-            fans = []
-            for i in range(1, fan_num + 1):
-                fan_key = f"fan{i}"
-                if fan_key in detailed_stats:
-                    fans.append(str(detailed_stats[fan_key]))
-            fans_str = "/".join(fans)
-            item = QTableWidgetItem(fans_str)
-            item.setTextAlignment(Qt.AlignCenter)
-            self.table.setItem(row_for_ip, 7, item)
-            self.table.setColumnWidth(7, 125)
-
-        if 'temp1' in detailed_stats and 'temp2' in detailed_stats and 'temp3' in detailed_stats:
-            temps = [detailed_stats['temp1'], detailed_stats['temp2'], detailed_stats['temp3']]
-            item = QTableWidgetItem(f"{temps[0]}/{temps[1]}/{temps[2]}")
-            item.setTextAlignment(Qt.AlignCenter)
-            self.table.setItem(row_for_ip, 9, item)
-
-        if 'temp2_1' in detailed_stats and 'temp2_2' in detailed_stats and 'temp2_3' in detailed_stats:
-            temps = [detailed_stats['temp2_1'], detailed_stats['temp2_2'], detailed_stats['temp2_3']]
-            item = QTableWidgetItem(f"{temps[0]}/{temps[1]}/{temps[2]}")
-            item.setTextAlignment(Qt.AlignCenter)
-            self.table.setItem(row_for_ip, 10, item)
-
-        if 'CompileTime' in stats_data:
-            self.table.setItem(row_for_ip, 11, QTableWidgetItem(stats_data['CompileTime']))
-
-        # Define function to get the pool status symbol
-        def get_pool_status_symbol(status):
-            if status == "Alive":
-                return "✅"
-            elif status in ["Dead", "Stopped"]:
-                return "❌"
-            else:
-                return status
-
-        # If no pool data is found, print a message and return
-        if not pool_data:
-            print(f"Missing pools_data for IP {ip}")
-            return
-
-        # Since pool_data itself is the list of pools, you don't need to extract 'POOLS' from it
-        pools_list = pool_data
-        if not pools_list:
-            print(f"Missing POOLS list for IP {ip}")
-            return
-
-        for i, pool in enumerate(pools_list):
-            pool_url_item = QTableWidgetItem(pool.get('URL', 'N/A'))
-            pool_url_item.setTextAlignment(Qt.AlignCenter)
-            worker_item = QTableWidgetItem(pool.get('User', 'N/A'))
-            worker_item.setTextAlignment(Qt.AlignCenter)
-            status_symbol = get_pool_status_symbol(pool.get('Status', 'N/A'))
-            status_item = QTableWidgetItem(status_symbol)
-            status_item.setTextAlignment(Qt.AlignCenter)
-            last_share_time_item = QTableWidgetItem(pool.get('Last Share Time', 'N/A'))
-            last_share_time_item.setTextAlignment(Qt.AlignCenter)
-
-            base_column = 14 + i * 4
-            self.table.setItem(row_for_ip, base_column, pool_url_item)
-            self.table.setItem(row_for_ip, base_column + 1, worker_item)
-            self.table.setItem(row_for_ip, base_column + 2, status_item)
-            self.table.setItem(row_for_ip, base_column + 3, last_share_time_item)
-
-
-
-    def open_web_interface(self, row, col):
-        # Check if the clicked cell is the IP cell
-        if col == 1:
-            item = self.table.item(row, col)
-            if item:
-                ip = item.text()
-                # Open the web interface
-                webbrowser.open(f"http://{ip}")
-
-
-
-    def on_scan_completed(self, open_ports, total_miners):
-        # Убрали уведомление об окончании сканирования
-        # QMessageBox.information(self, "Scan Finished", f"Scanning finished. Found {total_miners} devices.")
-      
-       pass  # Пустое тело функции; добавьте здесь другой код, если необходимо
-
-
-
-    def save_values(self):
-        self.asic_values = []
-        for row in range(self.table.rowCount()):
-            item = self.table.item(row, 0)
-            if item is not None:
-                self.asic_values.append(item.text())
-
-    def hideEvent(self, event):
-        super().hideEvent(event)
-        self.save_values()
-
-    def save_header_state(self):
-        header = self.table.horizontalHeader()
-        state = header.saveState()
-        with open('header_state.pkl', 'wb') as f:
-            pickle.dump(state, f)
-
-    def load_header_state(self):
-        if os.path.exists('header_state.pkl'):
-            with open('header_state.pkl', 'rb') as f:
-                state = pickle.load(f)
-                self.table.horizontalHeader().restoreState(state)
-
-    def header_checkbox_state_changed(self, state):
-        # Set the state of all checkboxes in the column
-        for i in range(self.table.rowCount()):
-            item = self.table.item(i, 0)
-            if item is not None:
-               item.setCheckState(state)
-
-
-    def load_data(self):
-        self.data = 'Data for ScanTab'
-
-    def save_data(self):
-        print(f"Saving data: {self.data}")           
-
-
-def convert_seconds_to_time_string(seconds):
-    days, remainder = divmod(seconds, 86400)
-    hours, remainder = divmod(remainder, 3600)
-    minutes, seconds = divmod(remainder, 60)
-    return f"{days} d {hours} h {minutes} m {seconds} s"
-
-
-class UpgradeDialog(QDialog):
-    def __init__(self, parent=None):
-        super(UpgradeDialog, self).__init__(parent)
-        self.label = QLabel(self)
-        self.label.move(10, 10)
-        self.button = QPushButton('Upgrade', self)
-        self.button.move(10, 50)
-        self.button.clicked.connect(self.on_upgrade_button_clicked)
-        self.setWindowTitle("Firmware Upgrade")
-        self.setFixedSize(300, 100)
-
-    def on_upgrade_button_clicked(self):
-        firmware_file = QFileDialog.getOpenFileName(self, 'Open Firmware File', '', 'Firmware Files (*.bin)')[0]
-        if firmware_file:
-            print(f"Upgrading with {firmware_file}.")
-            QMessageBox.information(self, "Upgrade", f"Upgrading with {firmware_file}.")
-            # Here goes the firmware upgrade code    
-    def extract_pool_data(self, data):
-        """
-        Extracts pool data from the provided data dictionary.
-        """
-        command_data = data.get('command_data', {})
-        pool_string = command_data.get('pools', '')
-    
-        pool_items = pool_string.split('|')
-        pool_list = []
-
-        for item in pool_items:
-            if not item.startswith("POOL="):  # Check to ensure the element starts with "POOL="
-                continue
-            pool_dict = self.convert_string_to_dict(item.replace("POOL=", ""))  # Removing "POOL=" from the start of the string
-            if pool_dict:
-                pool_list.append(pool_dict)
-
-        print(f"Returning pool_list: {pool_list}")  # For diagnostic purposes
-
-        return pool_list
-    
-    def extract_estats_data(self, estats_string):
-        """
-        Extracts estats data from the provided estats_string.
-        """
-        data_list = estats_string.split(',')
-        data_dict = {}
-        for data in data_list:
-            parts = data.split('=')
-            if len(parts) == 2:
-                key, value = parts
-                data_dict[key] = value
-        return data_dict
-    
-    def process_estats(self, data):  
         """
         Обрабатывает данные estats, возвращая словарь с данными от начала до "POOLS[0]".
         """
@@ -854,59 +391,196 @@ class UpgradeDialog(QDialog):
                 key, value = parts
                 version_dict[key] = value
 
-                     # Extracting estats data
+        # Extracting estats data
         estats_data = data.get('command_data', {}).get('estats', '')
         estats_sections = estats_data.split('|')
         # We are focusing on the first section that starts with 'STATS=0'
         estats_string = next((section for section in estats_sections if section.startswith('STATS=0')), '')
-        estats_dict = self.extract_estats_data(estats_string)
+        estats_dict = self.parse_estats_data(estats_string)
+
+        # Remove PVT_T0, PVT_T1, PVT_T2 and everything after it
+        keys_after_pvts = False
+        for key in list(estats_dict.keys()):
+            if key in ['PVT_T0', 'PVT_T1', 'PVT_T2'] or keys_after_pvts:
+                del estats_dict[key]
+                keys_after_pvts = True
 
         # Combining version and estats data
         combined_data = {**version_dict, **estats_dict}
 
         return combined_data
 
+    def parse_section(self, section):  
+        """
+        Parses a section and returns a dictionary.
+        """
+        items = section.split(',')
+        parsed_dict = {}
+        for item in items:
+            parts = item.split('=')
+            if len(parts) == 2:
+                key, value = parts
+                parsed_dict[key] = value
+        return parsed_dict
+
+    def parse_estats_data(self, estats_string):
+        """
+        Improved function to extract estats data from the provided estats_string.
+        """
+        # Regular expression patterns
+        bracket_pattern = re.compile(r'(\w+)\[(.*?)\]')
+        kv_pattern = re.compile(r'(\w+)=([\w.]+)')
+
+        data_dict = {}
+
+        # Extract bracketed values
+        for match in bracket_pattern.finditer(estats_string):
+            key, value = match.groups()
+            if ',' in value or '=' in value:
+                # Nested key-values
+                nested_data = {}
+                for m in kv_pattern.finditer(value):
+                    nested_key, nested_value = m.groups()
+                    nested_data[nested_key] = nested_value
+                data_dict[key] = nested_data
+            else:
+                data_dict[key] = value
+
+        # Extract regular key-values
+        for match in kv_pattern.finditer(estats_string):
+            key, value = match.groups()
+            if key not in data_dict:
+                data_dict[key] = value
+
+        return data_dict
+
+    def extract_bracket_values(self, data):
+        pattern = re.compile(r'(\w+)\[(\d+\.\d+)]')  # Регулярное выражение для извлечения пар ключ-значение
+        return {match.group(1): match.group(2) for match in pattern.finditer(data)}
+
+    def process_bitmicro_data_helper(self, data):
+        # Initialize an empty dictionary to hold the processed data
+        processed_data = {}
+    
+        # Process 'devdetails' section
+        devdetails_str = data.get('command_data', {}).get('devdetails', '')
+        if devdetails_str:
+            devdetails_data = json.loads(devdetails_str)
+            processed_data['devdetails'] = devdetails_data.get('DEVDETAILS', [])
+    
+        # Process 'edevs' section
+        edevs_str = data.get('command_data', {}).get('edevs', '')
+        if edevs_str:
+            edevs_data = json.loads(edevs_str)
+            processed_data['edevs'] = edevs_data.get('DEVS', [])
+        
+        # Process 'summary' section
+        summary_str = data.get('command_data', {}).get('summary', '')
+        if summary_str:
+            summary_data = json.loads(summary_str)
+            processed_data['summary'] = summary_data.get('SUMMARY', [])[0] if summary_data.get('SUMMARY') else {}
+    
+        # Process 'pools' section
+        pools_str = data.get('command_data', {}).get('pools', '')
+        if pools_str:
+            pools_data = json.loads(pools_str)
+            processed_data['pools'] = pools_data.get('POOLS', [])
+        
+        return processed_data
+    
     def process_avalon_data(self, ip, data):
-        print(f"--- Start Processing avalon data for IP {ip} ---")
 
         if not isinstance(data, dict):
-            print(f"Error: Data for IP {ip} is not a dictionary. Received data: {data}")
             return
 
         row_for_ip = self.find_or_create_row(ip)
-        print(f"Row for IP {ip}: {row_for_ip}")
-
+    
+        # Обработка данных estats
         estats_results = self.process_estats(data)
-        print(f"Processed estats data for IP {ip}: {estats_results}")
-
+       
+         # Преобразование строки 'response' в словарь
         response_str = data.get('response', '')
         stats_data = self.convert_string_to_dict(response_str)
 
-        detailed_stats = stats_data
+        # Combine estats_results and stats_data
+        detailed_stats = {**estats_results, **stats_data}
+        
+          # Извлекаем данные в квадратных скобках и добавляем их в detailed_stats
+        bracket_values = self.extract_bracket_values(str(detailed_stats))
+        detailed_stats = {**detailed_stats, **bracket_values}
 
         if not detailed_stats:
-            print(f"No detailed stats found for IP {ip}. Exiting function.")
             return
    
+        # Извлекаем данные о пуле
         pool_data = self.extract_pool_data(data)
-        print(f"Extracted pool data for IP {ip}: {pool_data}")
 
+        # Add checkbox only for a new row
         item = QTableWidgetItem()
         item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
         item.setCheckState(Qt.Unchecked)
         self.table.setItem(row_for_ip, 0, item)
-        print(f"Added checkbox for IP {ip} at row {row_for_ip}")
+        
 
+        # IP
         item = QTableWidgetItem(ip)
-        item.setTextAlignment(Qt.AlignCenter)
-        item.setToolTip(ip)
+        item.setTextAlignment(Qt.AlignCenter)  # Align text center
+        item.setToolTip(ip)  # Set tooltip
         self.table.setItem(row_for_ip, 1, item)
-        print(f"IP address {ip} set in the table for row {row_for_ip}")
+        
 
+        
         if 'PROD' in stats_data:
             self.table.setItem(row_for_ip, 3, QTableWidgetItem(stats_data['PROD']))
-            item.setTextAlignment(Qt.AlignCenter)
+            item.setTextAlignment(Qt.AlignCenter)  # Выровнять текст по центру
+        
+        if 'GHSmm' in detailed_stats:
+            item = QTableWidgetItem(detailed_stats['GHSmm'])
+            item.setTextAlignment(Qt.AlignCenter)  # Выровнять текст по центру
+            self.table.setItem(row_for_ip, 4, item)
+     
+        if 'GHSavg' in detailed_stats:
+            item = QTableWidgetItem(detailed_stats['GHSavg'])
+            item.setTextAlignment(Qt.AlignCenter)  # Выровнять текст по центру
+            self.table.setItem(row_for_ip, 5, item)
 
+        if 'Elapsed' in detailed_stats:
+            elapsed_seconds = int(detailed_stats['Elapsed'])
+            elapsed_time = convert_seconds_to_time_string(elapsed_seconds)
+            item.setTextAlignment(Qt.AlignCenter)  # Выровнять текст по центру
+            self.table.setItem(row_for_ip, 6, QTableWidgetItem(elapsed_time))
+
+        fan_keys = ['Fan1', 'Fan2', 'Fan3', 'Fan4']
+        fan_values = [detailed_stats[key] for key in fan_keys if key in detailed_stats]
+        fan_str = " / ".join(fan_values)
+    
+
+        if fan_str:
+            item = QTableWidgetItem(fan_str)
+            item.setTextAlignment(Qt.AlignCenter)  # Выровнять текст по центру
+            self.table.setItem(row_for_ip, 7, item)
+
+        if 'MTavg' in detailed_stats:
+            mtavg_values = [detailed_stats[key] for key in ['MTavg'] if key in detailed_stats]
+            mtavg_str = ' / '.join(mtavg_values)
+    
+            if mtavg_str:
+               item = QTableWidgetItem(mtavg_str)
+               item.setTextAlignment(Qt.AlignCenter)  # Выровнять текст по центру
+               self.table.setItem(row_for_ip, 8, item) 
+        
+        if 'PS' in detailed_stats:
+            item = QTableWidgetItem(detailed_stats['PS'])
+            item.setTextAlignment(Qt.AlignCenter)  # Выровнять текст по центру
+            self.table.setItem(row_for_ip, 9, item) 
+ 
+        if 'Ver' in detailed_stats:
+            item = QTableWidgetItem(detailed_stats['Ver'])
+            item.setTextAlignment(Qt.AlignCenter)  # Выровнять текст по центру
+            self.table.setItem(row_for_ip, 10, item)  
+
+
+        # Define function to get the pool status symbol
         def get_pool_status_symbol(status):
             if status == "Alive":
                 return "✅"
@@ -915,13 +589,13 @@ class UpgradeDialog(QDialog):
             else:
                 return status
 
+        # If no pool data is found, print a message and return
         if not pool_data:
-            print(f"Missing pools_data for IP {ip}")
             return
 
+        # Since pool_data itself is the list of pools, you don't need to extract 'POOLS' from it
         pools_list = pool_data
         if not pools_list:
-            print(f"Missing POOLS list for IP {ip}")
             return
 
         for i, pool in enumerate(pools_list):
@@ -935,69 +609,61 @@ class UpgradeDialog(QDialog):
             last_share_time_item = QTableWidgetItem(pool.get('Last Share Time', 'N/A'))
             last_share_time_item.setTextAlignment(Qt.AlignCenter)
 
-            base_column = 14 + i * 4
+            base_column = 11 + i * 4
             self.table.setItem(row_for_ip, base_column, pool_url_item)
             self.table.setItem(row_for_ip, base_column + 1, worker_item)
             self.table.setItem(row_for_ip, base_column + 2, status_item)
             self.table.setItem(row_for_ip, base_column + 3, last_share_time_item)
 
-        print(f"--- Finished Processing Avalon data for IP {ip} ---")
+        detailed_stats['ip_address'] = ip  # Добавляем IP-адрес в данные
+        self.send_to_monitoring_signal.emit(detailed_stats)  # отправка данных после обработки
 
 
-
-    
     def process_antminer_data(self, ip, data):
-        print(f"--- Start Processing Antminer data for IP {ip} ---")
-
+       
         # Check if data is a dictionary
         if not isinstance(data, dict):
-            print(f"Error: Data for IP {ip} is not a dictionary. Received data: {data}")
             return
-
+        
         row_for_ip = self.find_or_create_row(ip)
-        print(f"Row for IP {ip}: {row_for_ip}")
-
+      
         # Преобразование строки 'response' в словарь
         response_str = data.get('response', '')
         stats_data = self.convert_string_to_dict(response_str)
-
-        print(f"Extracted stats data for IP {ip}: {stats_data}")
-
+ 
         detailed_stats = stats_data
    
         if not detailed_stats:
-            print(f"No detailed stats found for IP {ip}. Exiting function.")
             return
 
         # Extracting pool data
         pool_data = self.extract_pool_data(data)
-        print(f"Extracted pool data for IP {ip}: {pool_data}")
-
+        
         # Add checkbox only for a new row
         item = QTableWidgetItem()
         item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
         item.setCheckState(Qt.Unchecked)
         self.table.setItem(row_for_ip, 0, item)
-        print(f"Checkbox added for IP {ip} at row {row_for_ip}")
+       
 
         # IP
         item = QTableWidgetItem(ip)
         item.setTextAlignment(Qt.AlignCenter)  # Align text center
         item.setToolTip(ip)  # Set tooltip
         self.table.setItem(row_for_ip, 1, item)
-        print(f"IP address {ip} set in the table for row {row_for_ip}")
+       
 
         if 'Type' in stats_data:
             self.table.setItem(row_for_ip, 3, QTableWidgetItem(stats_data['Type']))
             item.setTextAlignment(Qt.AlignCenter)  # Выровнять текст по центру
 
-        # GHS av
+       
         if 'GHS av' in detailed_stats:
             item = QTableWidgetItem(str(detailed_stats['GHS av']))
             item.setTextAlignment(Qt.AlignCenter)  # Выровнять текст по центру
             self.table.setItem(row_for_ip, 4, item)
 
-        # GHS 5s
+    
         if 'GHS 5s' in detailed_stats:
             item = QTableWidgetItem(str(detailed_stats['GHS 5s']))
             item.setTextAlignment(Qt.AlignCenter)  # Выровнять текст по центру
@@ -1006,6 +672,8 @@ class UpgradeDialog(QDialog):
         if 'Elapsed' in detailed_stats:
             elapsed_seconds = int(detailed_stats['Elapsed'])
             elapsed_time = convert_seconds_to_time_string(elapsed_seconds)
+            item.setTextAlignment(Qt.AlignCenter)  # Выровнять текст по центру
+
             self.table.setItem(row_for_ip, 6, QTableWidgetItem(elapsed_time))
 
         if 'fan_num' in detailed_stats:
@@ -1021,22 +689,27 @@ class UpgradeDialog(QDialog):
             self.table.setItem(row_for_ip, 7, item)
             self.table.setColumnWidth(7, 125)
 
-        if 'temp1' in detailed_stats and 'temp2' in detailed_stats and 'temp3' in detailed_stats:
-            temps = [detailed_stats['temp1'], detailed_stats['temp2'], detailed_stats['temp3']]
-            item = QTableWidgetItem(f"{temps[0]}/{temps[1]}/{temps[2]}")
-            item.setTextAlignment(Qt.AlignCenter)
-            self.table.setItem(row_for_ip, 9, item)
-
         if 'temp2_1' in detailed_stats and 'temp2_2' in detailed_stats and 'temp2_3' in detailed_stats:
             temps = [detailed_stats['temp2_1'], detailed_stats['temp2_2'], detailed_stats['temp2_3']]
             item = QTableWidgetItem(f"{temps[0]}/{temps[1]}/{temps[2]}")
             item.setTextAlignment(Qt.AlignCenter)
-            self.table.setItem(row_for_ip, 10, item)
+            self.table.setItem(row_for_ip, 8, item)
+
+        # Извлечение и сложение значений
+        chain_consumption_keys = ['chain_consumption1', 'chain_consumption2', 'chain_consumption3']
+        chain_consumption_values = [int(detailed_stats[key]) for key in chain_consumption_keys if key in detailed_stats]
+        total_chain_consumption = sum(chain_consumption_values)
+
+            # Отображение полученного значения в таблице
+        if total_chain_consumption:
+            item = QTableWidgetItem(str(total_chain_consumption))
+            item.setTextAlignment(Qt.AlignCenter)  # Выровнять текст по центру
+            self.table.setItem(row_for_ip, 9, item)  # Замените COLUMN_INDEX на соответствующий индекс столбца
 
         if 'CompileTime' in stats_data:
-            self.table.setItem(row_for_ip, 11, QTableWidgetItem(stats_data['CompileTime']))
-
-        # Define function to get the pool status symbol
+            self.table.setItem(row_for_ip, 10, QTableWidgetItem(stats_data['CompileTime']))
+        
+        
         def get_pool_status_symbol(status):
             if status == "Alive":
                 return "✅"
@@ -1047,13 +720,11 @@ class UpgradeDialog(QDialog):
 
         # If no pool data is found, print a message and return
         if not pool_data:
-            print(f"Missing pools_data for IP {ip}")
             return
 
         # Since pool_data itself is the list of pools, you don't need to extract 'POOLS' from it
         pools_list = pool_data
         if not pools_list:
-            print(f"Missing POOLS list for IP {ip}")
             return
 
         for i, pool in enumerate(pools_list):
@@ -1067,12 +738,158 @@ class UpgradeDialog(QDialog):
             last_share_time_item = QTableWidgetItem(pool.get('Last Share Time', 'N/A'))
             last_share_time_item.setTextAlignment(Qt.AlignCenter)
 
-            base_column = 14 + i * 4
+            base_column = 11 + i * 4
             self.table.setItem(row_for_ip, base_column, pool_url_item)
             self.table.setItem(row_for_ip, base_column + 1, worker_item)
             self.table.setItem(row_for_ip, base_column + 2, status_item)
             self.table.setItem(row_for_ip, base_column + 3, last_share_time_item)
 
+        detailed_stats['ip_address'] = ip  # Добавляем IP-адрес в данные
+        self.send_to_monitoring_signal.emit(detailed_stats)  # отправка данных после обработки
+
+
+    def process_bitmicro_data(self, ip, data):
+        
+        detailed_stats = {}
+
+        # Инициализация response_str
+        response_str = data.get('response', '')
+
+        # Преобразование response_str в словарь
+        stats_data = self.convert_string_to_dict(response_str)
+
+        if not isinstance(stats_data, dict):
+            return
+
+        row_for_ip = self.find_or_create_row(ip)
+        
+        # Извлечение command_data
+        command_data_str = data.get('command_data', '')
+        command_data = self.convert_string_to_dict2(command_data_str)
+
+        # Вызов process_bitmicro_data
+        processed_data = self.process_bitmicro_data_helper(data)
+
+        # Add checkbox only for a new row
+        item = QTableWidgetItem()
+        item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
+        item.setCheckState(Qt.Unchecked)
+        self.table.setItem(row_for_ip, 0, item)
+        
+
+         # IP
+        item = QTableWidgetItem(ip)
+        item.setTextAlignment(Qt.AlignCenter)  # Align text center
+        item.setToolTip(ip)  # Set tooltip
+        self.table.setItem(row_for_ip, 1, item)
+        
+
+        # Model (3rd column)
+        if 'devdetails' in processed_data:
+            model_data = processed_data['devdetails'][0].get('Model', '')
+            item = QTableWidgetItem(str(model_data))
+            item.setTextAlignment(Qt.AlignCenter)
+            self.table.setItem(row_for_ip, 3, item)
+            detailed_stats['Model'] = model_data
+
+
+       # MHS 5s (4th column)
+        if 'summary' in processed_data:
+            mhs_5s_mhs = processed_data['summary'].get('MHS 5s', 0)  # Здесь, я предполагаю, что если данных нет, то значение равно 0
+            mhs_5s_ghs = mhs_5s_mhs / 1e3  # Преобразование в гигахэши
+            item = QTableWidgetItem(f"{mhs_5s_ghs:.2f} GH/s")  # Округление до двух знаков после запятой и добавление "GH/s"
+            item.setTextAlignment(Qt.AlignCenter)
+            self.table.setItem(row_for_ip, 4, item)
+            detailed_stats['MHS_5s'] = mhs_5s_ghs
+
+         # HS RT (5th column)
+        hs_rt_mhs = processed_data['summary'].get('HS RT', 0)  # Здесь, я предполагаю, что если данных нет, то значение равно 0
+        hs_rt_ghs = hs_rt_mhs / 1e3  # Преобразование в гигахэши
+        item = QTableWidgetItem(f"{hs_rt_ghs:.2f} GH/s")  # Округление до двух знаков после запятой и добавление "GH/s"
+        item.setTextAlignment(Qt.AlignCenter)
+        self.table.setItem(row_for_ip, 5, item)
+        detailed_stats['HS_RT'] = hs_rt_ghs
+
+
+        
+        if 'Elapsed' in processed_data.get('summary', {}):
+            elapsed_time = processed_data['summary']['Elapsed']
+            elapsed_time = convert_seconds_to_time_string(elapsed_time)
+            item = QTableWidgetItem(str(elapsed_time))
+            item.setTextAlignment(Qt.AlignCenter)
+            self.table.setItem(row_for_ip, 6, item)  # Предположим, что 5 - это индекс колонки "Время работы"
+            detailed_stats['Elapsed'] = elapsed_time
+
+        # Fan Speed (7th column)
+        fan_in = processed_data['summary'].get('Fan Speed In', '')
+        fan_out = processed_data['summary'].get('Fan Speed Out', '')
+        item = QTableWidgetItem(f"{fan_in}/{fan_out}")
+        item.setTextAlignment(Qt.AlignCenter)
+        self.table.setItem(row_for_ip, 7, item)
+        detailed_stats['Fan_In'] = fan_in
+        detailed_stats['Fan_Out'] = fan_out
+
+    
+        # Temperatures (10th column)
+        if 'edevs' in processed_data:
+            temps = [str(dev.get('Temperature', '')) for dev in processed_data['edevs']]
+            detailed_stats['Temps'] = temps
+            item = QTableWidgetItem('/'.join(temps))
+            item.setTextAlignment(Qt.AlignCenter)
+            self.table.setItem(row_for_ip, 8, item)
+
+
+        # Power (13th column)
+        power = processed_data['summary'].get('Power', '')
+        item = QTableWidgetItem(str(power))
+        item.setTextAlignment(Qt.AlignCenter)
+        self.table.setItem(row_for_ip, 9, item)
+        detailed_stats['Power'] = power
+
+        
+        # Получение данных пула
+        pool_data = processed_data.get('pools', [])
+        detailed_stats['Pools'] = pool_data
+
+    
+        # Функция для получения символа статуса пула
+        def get_pool_status_symbol(status):
+            if status == "Alive":
+                return "✅"
+            elif status in ["Dead", "Stopped"]:
+                return "❌"
+            else:
+                return status
+    
+        for i, pool in enumerate(pool_data):
+            pool_url_item = QTableWidgetItem(pool.get('URL', 'N/A'))
+            pool_url_item.setTextAlignment(Qt.AlignCenter)
+            worker_item = QTableWidgetItem(pool.get('User', 'N/A'))
+            worker_item.setTextAlignment(Qt.AlignCenter)
+            status_symbol = get_pool_status_symbol(pool.get('Status', 'N/A'))
+            status_item = QTableWidgetItem(status_symbol)
+            status_item.setTextAlignment(Qt.AlignCenter)
+            last_share_time_item = QTableWidgetItem(str(pool.get('Last Share Time', 'N/A')))
+            last_share_time_item.setTextAlignment(Qt.AlignCenter)
+
+            base_column = 11 + i * 4 
+            self.table.setItem(row_for_ip, base_column, pool_url_item)
+            self.table.setItem(row_for_ip, base_column + 1, worker_item)
+            self.table.setItem(row_for_ip, base_column + 2, status_item)
+            self.table.setItem(row_for_ip, base_column + 3, last_share_time_item)
+
+
+      
+        detailed_stats['ip_address'] = ip
+        self.send_to_monitoring_signal.emit(detailed_stats)
+  
+
+
+    
+    def scan_finished(self, row_count):
+        self.send_to_monitoring_signal.emit({'is_final': True})
+        if not self.monitor_enabled:
+            QMessageBox.information(self, 'Сканирование завершено', f'Найдено {row_count:} устройств.')
 
 
     def open_web_interface(self, row, col):
@@ -1084,13 +901,6 @@ class UpgradeDialog(QDialog):
                 # Open the web interface
                 webbrowser.open(f"http://{ip}")
 
-
-
-    def on_scan_completed(self, open_ports, total_miners):
-        # Убрали уведомление об окончании сканирования
-        # QMessageBox.information(self, "Scan Finished", f"Scanning finished. Found {total_miners} devices.")
-      
-       pass  # Пустое тело функции; добавьте здесь другой код, если необходимо
 
 
 
@@ -1123,7 +933,8 @@ class UpgradeDialog(QDialog):
             item = self.table.item(i, 0)
             if item is not None:
                item.setCheckState(state)
-
+      
+ 
 
     def load_data(self):
         self.data = 'Data for ScanTab'
@@ -1132,11 +943,7 @@ class UpgradeDialog(QDialog):
         print(f"Saving data: {self.data}")           
 
 
-def convert_seconds_to_time_string(seconds):
-    days, remainder = divmod(seconds, 86400)
-    hours, remainder = divmod(remainder, 3600)
-    minutes, seconds = divmod(remainder, 60)
-    return f"{days} d {hours} h {minutes} m {seconds} s"
+
 
 
 class UpgradeDialog(QDialog):
@@ -1153,6 +960,7 @@ class UpgradeDialog(QDialog):
     def on_upgrade_button_clicked(self):
         firmware_file = QFileDialog.getOpenFileName(self, 'Open Firmware File', '', 'Firmware Files (*.bin)')[0]
         if firmware_file:
-            print(f"Upgrading with {firmware_file}.")
             QMessageBox.information(self, "Upgrade", f"Upgrading with {firmware_file}.")
-            # Here goes the firmware upgrade code    
+
+
+       

@@ -1,226 +1,231 @@
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel, QHBoxLayout, QSizePolicy
-from PyQt5.QtGui import QFont, QPainter, QPen, QBrush, QColor
-from PyQt5.QtCore import Qt, QTimer, QSize
-from matplotlib.figure import Figure
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-from datetime import datetime, timedelta
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGridLayout, QFrame, QComboBox, QToolTip, QSizePolicy
 from PyQt5.QtCore import pyqtSlot
-from matplotlib.dates import DateFormatter
-from matplotlib.ticker import AutoMinorLocator
+from PyQt5.QtGui import QFont
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.figure import Figure
+from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
-from PyQt5.QtWidgets import QToolTip
-from matplotlib.widgets import Cursor
-from PyQt5.QtCore import QPoint
-
-class RoundProgressBar(QWidget):
-    """Виджет круглого прогресс-бара."""
-    def __init__(self, parent=None):
-        super(RoundProgressBar, self).__init__(parent)
-        self._value = 0
-        self._max_value = 100
-        self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-
-    def paintEvent(self, event):
-        """Отрисовка прогресс-бара."""
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-
-        # Рисуем внешний круг
-        pen = QPen(QColor("#20FF1F"))
-        pen.setWidth(10)
-        painter.setPen(pen)
-        painter.drawEllipse(5, 5, self.width() - 10, self.height() - 10)
-
-        # Рисуем дугу прогресса
-        arc_length = int(360 * self._value / self._max_value)
-        painter.drawArc(5, 5, self.width() - 10, self.height() - 10, 90 * 16, -arc_length * 16)
-
-        # Рисуем текст внутри круга
-        painter.setPen(QColor("#20FF1F"))
-        painter.setFont(QFont("Arial", 18))
-        painter.drawText(self.rect(), Qt.AlignCenter, str(self._value))
-
-    def sizeHint(self):
-        """Подсказка размера для правильного отображения виджета."""
-        return QSize(100,100)
-
-    def setValue(self, value):
-        """Установить значение прогресс-бара."""
-        self._value = value
-        self.update()
-
-    def setRange(self, min_value, max_value):
-        """Установить диапазон прогресс-бара."""
-        self._max_value = max_value
+import numpy as np
+from matplotlib.artist import Artist
+from matplotlib.dates import DateFormatter
 
 
+
+class InfoPanel(QFrame):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.layout = QGridLayout()
+        self.init_ui()
+
+    def init_ui(self):
+        self.asics_label = QLabel("Asics:")
+        self.asics_value = QLabel("0")
+        self.hashrate_label = QLabel("Total Hashrate:")
+        self.hashrate_value = QLabel("0 TH/s")
+
+        self.layout.addWidget(self.asics_label, 0, 0)
+        self.layout.addWidget(self.asics_value, 0, 1)
+        self.layout.addWidget(self.hashrate_label, 1, 0)
+        self.layout.addWidget(self.hashrate_value, 1, 1)
+
+        self.setLayout(self.layout)
+
+# Основной класс для отслеживания данных и отображения их на графике
 class MonitorTab(QWidget):
-    """Вкладка для мониторинга данных."""
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.layout = QVBoxLayout()
+        self.data_by_ip = {}
+        self.total_hashrate_by_model = {}
+        self.current_annotation = None  # Текущая аннотация (подсказка)
+        self.hashrate_history = []  # История хэшрейта
+        self.time_history = []  # История времени
 
-    def __init__(self, scan_tab_reference, monitoring_interval_minutes=60, parent=None):
-        super(MonitorTab, self).__init__(parent)
+        self.init_ui()
 
-        # Ссылка на ScanTab
-        self.scan_tab_reference = scan_tab_reference
+    def init_ui(self):
+        self.upper_horizontal_layout = QHBoxLayout()
+        self.info_panel = InfoPanel()
+        self.upper_horizontal_layout.addWidget(self.info_panel)
 
-        # Установка стиля для QToolTip
-        QToolTip.setFont(QFont('Arial', 10))
+        self.is_final_received = False
 
-        # Интервал мониторинга в миллисекундах (по умолчанию 60 минут)
-        self.monitoring_interval = monitoring_interval_minutes * 60 * 1000
+        self.figure = Figure(figsize=(10, 8), dpi=100)
+        self.canvas = FigureCanvas(self.figure)
+        self.ax = self.figure.add_subplot(111)
 
-        # Список для хранения данных хешрейта за последние 24 часа
-        self.hashrate_data = [0] * (24 * (60 // monitoring_interval_minutes))
+        # Установка темного стиля для графика
+        self.ax.set_facecolor("black")
+        self.figure.patch.set_facecolor("black")
+        self.ax.tick_params(colors='white')
+        self.ax.xaxis.label.set_color('white')
+        self.ax.yaxis.label.set_color('white')
 
-        # Таймер для периодического обновления
-        self.timer = QTimer()
-        self.timer.timeout.connect(self.update_monitoring_state)
+        # Событие при наведении мыши и выходе из зоны графика
+        self.canvas.mpl_connect('motion_notify_event', self.on_hover)
+        self.canvas.mpl_connect('axes_leave_event', self.on_leave)
 
-        # Создание макета
-        layout = QVBoxLayout()
+        self.canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.upper_horizontal_layout.addWidget(self.canvas)
+        self.layout.addLayout(self.upper_horizontal_layout)
 
-        # Создание панели информации
-        card_widget = QWidget()
-        card_layout = QHBoxLayout()
-        card_widget.setLayout(card_layout)
-        card_widget.setFixedSize(400, 130)
-        card_widget.setStyleSheet("background-color: #33333 ")
+        self.timeframe_combobox = QComboBox()
+        self.timeframe_combobox.addItems(["Real Time", "Last 24 Hours", "Last Month"])
+        self.layout.addWidget(self.timeframe_combobox)
 
-        # Добавляем круглый прогресс-бар
-        self.progress_bar = RoundProgressBar()
-        self.progress_bar.setRange(0, 100)
-        self.progress_bar.setValue(100)  # Пример значения устройств
-        card_layout.addWidget(self.progress_bar)
-
-        # Добавляем метку хешрейта
-        self.hashrate_label = QLabel("Hashrate: 0 GH/s")
-        font = QFont()
-        font.setPointSize(16)
-        self.hashrate_label.setFont(font)
-        self.hashrate_label.setStyleSheet("color: white;")
-        card_layout.addWidget(self.hashrate_label)
-
-        layout.addWidget(card_widget)
-
-        # Создаем график хешрейта
-        figure = Figure(figsize=(5, 3), dpi=100)
-        figure.patch.set_facecolor('#3333')
-        self.canvas = FigureCanvas(figure)
-        self.hashrate_plot = figure.add_subplot(111)
-        layout.addWidget(self.canvas)
-
-        self.setLayout(layout)
-
-    # Обработчик движения мыши для отображения подсказок
-    def on_mouse_move(self, event):
-        x, y = event.xdata, event.ydata
-        if x is not None and y is not None:
-            global_x, global_y = self.canvas.mapToGlobal(self.canvas.pos())
-            QToolTip.showText(QPoint(global_x + event.x, global_y + event.y), f"TH: {y}")
-
-    def receive_monitoring_data(self, data):
-  #  """Обработка полученных данных мониторинга."""
-        total_hashrate_ghs = 0
-        for ip, miner_data in data.items():
-            if 'estats' in miner_data:
-                #hashrate_ghs_5s = miner_data['stats'][1].get('GHS 5s', 0)  # Преобразование в число, если ключ отсутствует, используется 0
-              #  total_hashrate_ghs += float(hashrate_ghs_5s)
-          #  else:
-                print(f"Ключ 'estats' отсутствует для IP {ip}. Данные: {miner_data}")
+        self.setLayout(self.layout)
 
 
-                # Прибавляем нужное значение к total_hashrate_ghs
-          #  total_hashrate_ghs += float(hashrate_ghs_5s)  # Преобразование в число
-                # Если нужно прибавить и 'GHSmm', то можно добавить следующую строку:
-        #total_hashrate_ghs += float(hashrate_ghs_mm)
+    @pyqtSlot(dict)
+    def receive_from_scan(self, data):  
+        is_final = data.get('is_final', False)
+        if is_final:
+            self.is_final_received = True
+            print("receive_from_scan: is_final_received set to True, calling finalize_update")
+            self.finalize_update()
+            return
 
-            total_hashrate_ths = total_hashrate_ghs / 1000  # Конвертация в терахеши
-            
+        ip_address = data.get('ip_address')
+        if not ip_address:
+            return
 
-            # Если значение превышает 1000 терахешей, конвертируем в петахеши
-            if total_hashrate_ths >= 1000:
-                total_hashrate_phs = total_hashrate_ths / 1000
-                self.hashrate_label.setText(f"Hashrate: {total_hashrate_phs} PH/s")
-                self.update_hashrate_plot(self.hashrate_data, unit="PH/s")
-            else:
-                self.hashrate_label.setText(f"Hashrate: {total_hashrate_ths} TH/s")
-                self.update_hashrate_plot(self.hashrate_data, unit="TH/s")
+        self.data_by_ip[ip_address] = data
+        self.aggregate_data_by_model()
+        self.update_info_panel()
 
-            # Обновление количества устройств
-            device_count = len(data)
+        # Добавить текущий хэшрейт и текущее время в историю
+        total_hashrate = sum([data['hashrate'] for data in self.total_hashrate_by_model.values()])
+        self.hashrate_history.append(total_hashrate)
+        self.time_history.append(datetime.now())
 
-            # Обновление прогресс-бара с новым количеством устройств
-            self.progress_bar.setValue(device_count)  # Обновление значения прогресс-бара
-  
-            # Обновление данных хешрейта
-            self.hashrate_data.pop(0)
-            self.hashrate_data.append(total_hashrate_ths)
 
-            # Обновление графика хешрейта
-            self.update_hashrate_plot(self.hashrate_data)
 
-    def start_monitor(self):
-        """Запуск мониторинга."""
-        self.timer.start(60000)
 
-    def stop_monitor(self):
-        """Остановка мониторинга."""
-        self.timer.stop()        
-    
-    
-    def update_monitoring_state(self):
-        """Обновление состояния мониторинга."""
-        # Вызов start_scan_and_get_data для обновления таблицы
-        self.scan_tab_reference.start_scan_and_get_data()
-    
-    def on_plot_hover(self, event):
-        xdata, ydata = event.xdata, event.ydata
-        if xdata is not None and ydata is not None:
-            print(f"Hover at x: {xdata}, y: {ydata}")  # Отладочное сообщение
-            global_point = self.canvas.mapToGlobal(QPoint(event.x, event.y))
-            QToolTip.showText(global_point, f"TH: {ydata:.2f}")
+    @pyqtSlot()
+    def finalize_update(self):
+        if self.is_final_received:
+            self.update_graph()
+            self.is_final_received = False
 
-    def update_hashrate_plot(self, y_data, unit="TH/s"):
-        x_data = [datetime.now() + timedelta(minutes=10 * i) for i in range(len(y_data))]
-        self.hashrate_plot.clear()
 
-        # Вычисляем максимальное значение для оси Y и проверяем на ноль
-        y_max = max(y_data) * 1.25  # Устанавливаем на 20% выше максимального значения
-        y_max = max(y_max, 1)  # Проверка на ноль
+    def aggregate_single_device(self, ip, data):
+        model = self.determine_model(data)
+        if not model:
+            return None
 
-        # Определяем цвет в зависимости от единицы измерения
-        if unit == "PH/s":
-            plt.yticks(range(0, 51, 1))  # Шаг 1 для петахешей
-            color_map = plt.get_cmap("coolwarm")
+        hash_rate_key = 'GHS 5s' if model == 'Antminer' else 'GHSmm' if model == 'Avalon' else 'MHS_5s'
+        hash_rate = float(data.get(hash_rate_key, 0))
+        hash_rate_ths = hash_rate / 1000.0
+
+        return model, hash_rate_ths
+
+    def aggregate_data_by_model(self):
+        self.total_hashrate_by_model.clear()
+
+        with ThreadPoolExecutor() as executor:
+            futures = {executor.submit(self.aggregate_single_device, ip, data): ip for ip, data in self.data_by_ip.items()}
+            for future in as_completed(futures):
+                ip = futures[future]
+                try:
+                    model, hash_rate_ths = future.result()
+                except Exception as exc:
+                    print(f"An exception occurred while aggregating data for {ip}: {exc}")
+                    continue
+
+                if not model:
+                    continue
+
+                current_model_data = self.total_hashrate_by_model.get(model, {'hashrate': 0, 'count': 0})
+                current_model_data['hashrate'] += hash_rate_ths
+                current_model_data['count'] += 1
+                self.total_hashrate_by_model[model] = current_model_data
+
+    def determine_model(self, data):
+        if 'Type' in data:
+            return 'Antminer'  
+        elif 'PROD' in data:
+            return 'Avalon'
+        elif 'Model' in data:
+            return 'WhatsMiner'
         else:
-            plt.yticks(range(0, 1001, 50))  # Шаг 50 для терахешей
-            color_map = plt.get_cmap("viridis")
+            return None
 
-        # Рисуем линию с градиентом
-        norm_y_data = [y / y_max for y in y_data]
-        for i in range(1, len(x_data)):
-            self.hashrate_plot.plot(x_data[i-1:i+1], y_data[i-1:i+1], color=color_map(norm_y_data[i]))
+    def on_hover(self, event):
+        if self.current_annotation:
+            self.current_annotation.remove()
+            self.current_annotation = None
 
-        # Добавляем заполнение под графиком (опционально)
-        self.hashrate_plot.fill_between(x_data, y_data, color=color_map(0.5), alpha=0.3)
+        if event.inaxes == self.ax:
+            self.current_annotation = self.ax.annotate(
+                f'TeraHash: {event.ydata:.1f}', 
+                (event.xdata, event.ydata),
+                textcoords="offset points",
+                xytext=(0,10),
+                ha='center',
+                color='white'
+            )
+            self.canvas.draw()
 
-        # Настройка графика
-        self.hashrate_plot.tick_params(axis='y', labelsize=12)
-        self.hashrate_plot.set_facecolor('#3333')
-        self.hashrate_plot.set_xlabel("Время")
-        self.hashrate_plot.yaxis.set_minor_locator(AutoMinorLocator())
-        self.hashrate_plot.set_ylabel(f"Hashrate ({unit})")
-        self.hashrate_plot.set_xlim(x_data[0], x_data[-1])
-        self.hashrate_plot.set_ylim(0, y_max)  # Установка максимального значения оси Y
+    
 
-        # Подключение события
-        self.canvas.mpl_connect('motion_notify_event', self.on_plot_hover)
+    def update_info_panel(self):
+        total_hashrate = sum([data['hashrate'] for data in self.total_hashrate_by_model.values()])
+        total_count = sum([data['count'] for data in self.total_hashrate_by_model.values()])
+        self.info_panel.asics_value.setText(str(total_count))
+        self.info_panel.hashrate_value.setText(f"{total_hashrate:.2f} TH/s")
 
-        # Обновление холста
+    def on_leave(self, event):
+        if self.current_annotation:
+            self.current_annotation.remove()
+            self.current_annotation = None
+            self.canvas.draw()
+
+    def update_graph(self):
+        if not self.is_final_received:
+            return
+        self.is_final_received = False
+     
+        selected_timeframe = self.timeframe_combobox.currentText()
+
+        self.ax.clear()
+        self.ax.set_facecolor("black")
+
+        # Форматтеры для даты
+        date_format = DateFormatter("%H:%M:%S")  # для "Real Time" и "Last 24 Hours"
+        date_format_month = DateFormatter("%d %b")  # для "Last Month"
+
+        if selected_timeframe == "Real Time":
+            self.ax.plot(self.time_history[-100:], self.hashrate_history[-100:], color='white')
+            self.ax.xaxis.set_major_formatter(date_format)
+        elif selected_timeframe == "Last 24 Hours":
+            self.ax.plot(self.time_history[-480:], self.hashrate_history[-480:], color='white')  # Assuming data every 3 minutes
+            self.ax.xaxis.set_major_formatter(date_format)
+        elif selected_timeframe == "Last Month":
+            self.ax.plot(self.time_history[-14400:], self.hashrate_history[-14400:], color='white')  # Assuming data every 3 minutes
+            self.ax.xaxis.set_major_formatter(date_format_month)
+
+        # Установить шаги для терахэшей
+        if self.hashrate_history:
+            max_hashrate = max(self.hashrate_history)
+            rounded_max_hashrate = round(max_hashrate, -1)  # Округляем до ближайшего круглого числа
+    
+            # Вычисляем значение шага для шкалы
+            step = rounded_max_hashrate / 10
+    
+            self.ax.set_yticks(np.arange(0, rounded_max_hashrate + step, step))  # Установить диапазон шагов
+    
+            # Заполнить график на 70%
+            self.ax.set_ylim(0, rounded_max_hashrate * 1.43)
+                 # Для отладки: проверка последних 10 значений в истории хэшрейта и времени
+       
+        # Применить изменения
         self.canvas.draw()
 
+
     def load_data(self):
-        self.data = 'Data for MonitorTab'
+        self.data = 'Data for moni hTab'
 
     def save_data(self):
-        print(f"Saving data: {self.data}")       
+        print(f"Saving data: {self.data}")
