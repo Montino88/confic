@@ -233,7 +233,7 @@ class ScanTab(QWidget):
         # Инициализация таймера для регулярного сканирования
         self.monitor_timer = QTimer(self)
         self.monitor_timer.timeout.connect(self.start_scan_and_get_data)
-        self.monitor_timer.setInterval(120 * 1000)  # 60 секу
+        self.monitor_timer.setInterval(300 * 1000)  # 300 сек
 
 
     def show_upgrade_dialog(self):
@@ -288,14 +288,15 @@ class ScanTab(QWidget):
             item = self.table.item(row, 1)
             if item and item.text() == ip:
                 print(f"Found existing row for IP {ip} at index {row}")
-                return row
+                return row, False  # Возвращаем индекс и флаг isNew=False
+
         # Если строка не найдена, создание новой строки
         row_for_ip = 0
         self.table.insertRow(row_for_ip)
         print(f"Created new row for IP {ip} at index {row_for_ip}")
 
-        return row_for_ip
-    
+        return row_for_ip, True  # Возвращаем индекс и флаг isNew=True
+      
 
 
 
@@ -308,12 +309,14 @@ class ScanTab(QWidget):
             return
 
         for ip, miner_data in data.items():
+            if miner_data is None:
+                print(f"No miner model found at {ip}")
+                continue
 
             identification_key = miner_data.get('model', miner_data.get('driver', '')).upper()
 
             if not identification_key:
                 continue
-
 
             if "ANTMINER" in identification_key:
                 self.process_antminer_data(ip, miner_data)
@@ -323,7 +326,6 @@ class ScanTab(QWidget):
                 self.process_bitmicro_data(ip, miner_data)
             else:
                 print(f"Unknown model 'model' for IP {ip}")
- 
 
             
 
@@ -488,12 +490,24 @@ class ScanTab(QWidget):
         
         return processed_data
     
+    def process_common_data(self, row_for_ip, is_new_row, ip, detailed_stats):
+        if is_new_row:
+            # Добавляем флажок и IP только для новых строк
+            item = QTableWidgetItem()
+            item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
+            item.setCheckState(Qt.Unchecked)
+            self.table.setItem(row_for_ip, 0, item)
+
+            item = QTableWidgetItem(ip)
+            item.setTextAlignment(Qt.AlignCenter)  # Выравниваем текст по центру
+            item.setToolTip(ip)  # Устанавливаем всплывающую подсказку
+            self.table.setItem(row_for_ip, 1, item)
+
     def process_avalon_data(self, ip, data):
 
         if not isinstance(data, dict):
             return
 
-        row_for_ip = self.find_or_create_row(ip)
     
         # Обработка данных estats
         estats_results = self.process_estats(data)
@@ -515,6 +529,10 @@ class ScanTab(QWidget):
         # Извлекаем данные о пуле
         pool_data = self.extract_pool_data(data)
 
+        row_for_ip, is_new_row = self.find_or_create_row(ip)  # Распаковываем кортеж
+        self.process_common_data(row_for_ip, is_new_row, ip, detailed_stats)
+
+
         # Add checkbox only for a new row
         item = QTableWidgetItem()
         item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
@@ -522,12 +540,12 @@ class ScanTab(QWidget):
         self.table.setItem(row_for_ip, 0, item)
         
 
-        # IP
-        item = QTableWidgetItem(ip)
-        item.setTextAlignment(Qt.AlignCenter)  # Align text center
-        item.setToolTip(ip)  # Set tooltip
-        self.table.setItem(row_for_ip, 1, item)
-        
+        if is_new_row:
+            item = QTableWidgetItem()
+            item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
+            item.setCheckState(Qt.Unchecked)
+            self.table.setItem(row_for_ip, 0, item)
+    
 
         
         if 'PROD' in stats_data:
@@ -625,7 +643,7 @@ class ScanTab(QWidget):
         if not isinstance(data, dict):
             return
         
-        row_for_ip = self.find_or_create_row(ip)
+        
       
         # Преобразование строки 'response' в словарь
         response_str = data.get('response', '')
@@ -638,7 +656,10 @@ class ScanTab(QWidget):
 
         # Extracting pool data
         pool_data = self.extract_pool_data(data)
-        
+
+        row_for_ip, is_new_row = self.find_or_create_row(ip)  # Распаковываем кортеж
+        self.process_common_data(row_for_ip, is_new_row, ip, detailed_stats)
+
         # Add checkbox only for a new row
         item = QTableWidgetItem()
         item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
@@ -646,12 +667,12 @@ class ScanTab(QWidget):
         self.table.setItem(row_for_ip, 0, item)
        
 
-        # IP
-        item = QTableWidgetItem(ip)
-        item.setTextAlignment(Qt.AlignCenter)  # Align text center
-        item.setToolTip(ip)  # Set tooltip
-        self.table.setItem(row_for_ip, 1, item)
-       
+        if is_new_row:
+            item = QTableWidgetItem()
+            item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
+            item.setCheckState(Qt.Unchecked)
+            self.table.setItem(row_for_ip, 0, item)
+    
 
         if 'Type' in stats_data:
             self.table.setItem(row_for_ip, 3, QTableWidgetItem(stats_data['Type']))
@@ -761,7 +782,7 @@ class ScanTab(QWidget):
         if not isinstance(stats_data, dict):
             return
 
-        row_for_ip = self.find_or_create_row(ip)
+        
         
         # Извлечение command_data
         command_data_str = data.get('command_data', '')
@@ -769,6 +790,10 @@ class ScanTab(QWidget):
 
         # Вызов process_bitmicro_data
         processed_data = self.process_bitmicro_data_helper(data)
+
+        row_for_ip, is_new_row = self.find_or_create_row(ip)  # Распаковываем кортеж
+        self.process_common_data(row_for_ip, is_new_row, ip, detailed_stats)
+
 
         # Add checkbox only for a new row
         item = QTableWidgetItem()
@@ -778,10 +803,11 @@ class ScanTab(QWidget):
         
 
          # IP
-        item = QTableWidgetItem(ip)
-        item.setTextAlignment(Qt.AlignCenter)  # Align text center
-        item.setToolTip(ip)  # Set tooltip
-        self.table.setItem(row_for_ip, 1, item)
+        if is_new_row:
+            item = QTableWidgetItem(ip)
+            item.setTextAlignment(Qt.AlignCenter)  # Align text center
+            item.setToolTip(ip)  # Set tooltip
+            self.table.setItem(row_for_ip, 1, item)
         
 
         # Model (3rd column)

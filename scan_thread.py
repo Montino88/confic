@@ -34,7 +34,6 @@ async def send_socket_command(ip: str, port: int, command: str, json_format=Fals
     except Exception as e:
         return ""
 
-
 async def is_port_open(ip: str, port: int = 4028) -> bool:
     try:
         reader, writer = await asyncio.wait_for(asyncio.open_connection(ip, port), timeout=TIMEOUT)
@@ -45,7 +44,6 @@ async def is_port_open(ip: str, port: int = 4028) -> bool:
         return False
 
 async def determine_miner_model(ip: str) -> Optional[str]:
-    # Сначала попробуем определить модель для Avalon через команду "version"
     response = await send_socket_command(ip, 4028, "version")
     if "ERROR" not in response:
         if response and "PROD=" in response:
@@ -58,7 +56,6 @@ async def determine_miner_model(ip: str) -> Optional[str]:
             except (TypeError, LookupError):
                 pass
 
-    # Если не удалось определить модель Avalon, попробуем определить модель для Vnish через команду "stats"
     response = await send_socket_command(ip, 4028, "stats")
     if "ERROR" not in response:
         if "Type=" in response:
@@ -70,7 +67,6 @@ async def determine_miner_model(ip: str) -> Optional[str]:
             except (TypeError, LookupError):
                 pass
 
-    # Попробуем определить модель WhatsMiner через команду "devdetails"
     response = await send_socket_command(ip, 4028, "devdetails", json_format=True)
     if "ERROR" not in response and response:
         try:
@@ -79,23 +75,51 @@ async def determine_miner_model(ip: str) -> Optional[str]:
                 for dev_detail in sock_json_data["DEVDETAILS"]:
                     if "Driver" in dev_detail:
                         driver = dev_detail["Driver"]
-                        if driver == "bitmicro":  # Здесь может быть ваша специфическая логика
+                        if driver == "bitmicro":
                             return {"driver": driver, "response": response}
         except (TypeError, LookupError, json.JSONDecodeError) as e:
-            
             pass
- 
 
+class ScanThread(QThread):
+    ip_processed_signal = pyqtSignal(dict, int)
+    scan_finished_signal = pyqtSignal(int)
 
+    def __init__(self, ip_list):
+        super().__init__()
+        self.ip_list = ip_list
 
+    async def get_miner_list(self, ip):
+        return await self.scan_network(ip)
+    
+    async def send_model_specific_commands(self, ip: str, model_data: str):
 
-async def scan_network(ip_range: str) -> dict:
-    print(f"Known IPs before scanning: {known_ips}")
-    network = ipaddress.ip_network(ip_range, strict=False)
-    results = {}
-    semaphore = asyncio.Semaphore(SEM_LIMIT)
+        command_responses = {}  # словарь для хранения ответов
 
-    async def handle_ip(ip: str):
+        if "Antminer" in model_data:
+            response_stats = await send_socket_command(ip, 4028, "stats")
+            response_pools = await send_socket_command(ip, 4028, "pools")
+            command_responses["stats"] = response_stats
+            command_responses["pools"] = response_pools
+
+        elif "avalon" in model_data.lower():
+            response_pools = await send_socket_command(ip, 4028, "pools")
+            response_estats = await send_socket_command(ip, 4028, "estats")
+            command_responses["pools"] = response_pools
+            command_responses["estats"] = response_estats
+
+        elif model_data == 'bitmicro':
+            response_devdetails = await send_socket_command(ip, 4028, "devdetails", json_format=True)
+            response_edevs = await send_socket_command(ip, 4028, "edevs", json_format=True)
+            response_summary = await send_socket_command(ip, 4028, "summary", json_format=True)
+            response_pools = await send_socket_command(ip, 4028, "pools", json_format=True)
+            command_responses["devdetails"] = response_devdetails
+            command_responses["edevs"] = response_edevs
+            command_responses["summary"] = response_summary
+            command_responses["pools"] = response_pools
+
+        return command_responses
+    
+    async def handle_ip(self, ip: str, semaphore, results):
         async with semaphore:
             if ip in known_ips or await is_port_open(ip, 4028):
                 if ip not in known_ips:
@@ -103,98 +127,50 @@ async def scan_network(ip_range: str) -> dict:
                 model = await determine_miner_model(ip)
                 if model:
                     identification_key = model.get('model', model.get('driver', None))
-                    command_data = await send_model_specific_commands(ip, identification_key)  # получаем словарь с ответами
-                    model["command_data"] = command_data  # сохраняем этот словарь внутри модели
+                    command_data = await self.send_model_specific_commands(ip, identification_key)
+
+
+                    model["command_data"] = command_data
                     results[ip] = model
 
                 else:
                     print(f"No miner model found at {ip}")
                     if ip in known_ips:
-                        known_ips.remove(ip)  # Удаляем из известных, если модель не найдена
+                        known_ips.remove(ip)
+
+                self.ip_processed_signal.emit({ip: model if model else None}, 1 if model else 0)
+
+
             else:
                 print(f"{ip} is not open on port 4028")
                 if ip in known_ips:
-                    known_ips.remove(ip)  # Удаляем из известных, если порт закрыт
+                    known_ips.remove(ip)
 
-    await asyncio.gather(*[handle_ip(str(ip)) for ip in network.hosts()])
-    print(f"Known IPs after scanning: {known_ips}")
+    async def scan_network(self, ip_range: str):
+        print(f"Known IPs before scanning: {known_ips}")
+        network = ipaddress.ip_network(ip_range, strict=False)
+        results = {}
+        semaphore = asyncio.Semaphore(SEM_LIMIT)
+        await asyncio.gather(*[self.handle_ip(str(ip), semaphore, results) for ip in network.hosts()])
 
-    return results
-
-
-
-def print_final_results(results: dict):
-    if not results:
-        return
-    for ip, model in results.items():
-        print(f"{ip} - {model}")
+        return results
+    
+    
 
 
-async def send_model_specific_commands(ip: str, model_data: str):
-    command_responses = {}  # словарь для хранения ответов
-
-    if "Antminer" in model_data:
-        response_stats = await send_socket_command(ip, 4028, "stats")
-        response_pools = await send_socket_command(ip, 4028, "pools")
-        command_responses["stats"] = response_stats
-        command_responses["pools"] = response_pools
-        
-
-    elif "avalon" in model_data.lower():
-        response_pools = await send_socket_command(ip, 4028, "pools")
-        response_estats = await send_socket_command(ip, 4028, "estats")
-        command_responses["pools"] = response_pools
-        command_responses["estats"] = response_estats
-
-    elif model_data == 'bitmicro':
-
-        response_devdetails = await send_socket_command(ip, 4028, "devdetails", json_format=True)
-        response_edevs = await send_socket_command(ip, 4028, "edevs", json_format=True)
-        response_summary = await send_socket_command(ip, 4028, "summary", json_format=True)
-        response_pools = await send_socket_command(ip, 4028, "pools", json_format=True)
-        command_responses["devdetails"] = response_devdetails
-        command_responses["edevs"] = response_edevs
-        command_responses["summary"] = response_summary
-        command_responses["pools"] = response_pools
-   
-
-
-    return command_responses
-
-
-class ScanThread(QThread):
-    ip_processed_signal = pyqtSignal(dict, int)
-    scan_finished_signal = pyqtSignal(int)  # сигнал с одним целочисленным аргументом
-
-
-
-    def __init__(self, ip_list):
-        super().__init__()
-        self.ip_list = ip_list
-
-    async def get_miner_list(self, ip):
-        return await scan_network(ip)
-
-   
     def run(self):
         print("Начало метода run...")
-        open_ports = {}
-        all_ips = []
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
+        all_results = {}
 
         for ip in self.ip_list:
             try:
                 ips_for_ip = loop.run_until_complete(self.get_miner_list(ip))
-                if ips_for_ip:  # Добавляем эту проверку
-                    open_ports.update(ips_for_ip)
+                if ips_for_ip:
+                    all_results.update(ips_for_ip)
             except Exception as e:
-               print(f"Ошибка при выполнении асинхронных задач: {e}")
+                print(f"Ошибка при выполнении асинхронных задач: {e}")
 
-              
-        
         loop.close()
-       
-
-        self.ip_processed_signal.emit(open_ports, len(open_ports))
-        self.scan_finished_signal.emit(len(open_ports))
+        self.scan_finished_signal.emit(len(all_results))
