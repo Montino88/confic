@@ -1,9 +1,7 @@
 from PyQt5.QtWidgets import (QAbstractItemView, QCheckBox, QDialog, QFileDialog, QHBoxLayout, 
                              QHeaderView, QMessageBox, QLabel, QProgressBar, QPushButton, QScrollArea, 
                              QSizePolicy, QSpacerItem, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
-# Инициализация виджета для отображения таблицы
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QUrl
-# Инициализация потока для асинхронной обработки
 from PyQt5.QtGui import QColor, QDesktopServices, QPalette
 import traceback
 from scan_thread import ScanThread
@@ -11,7 +9,6 @@ import ipaddress
 import json
 import webbrowser
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QUrl, QTimer
-# Инициализация потока для асинхронной обработки
 from PyQt5.QtCore import QObject, pyqtSlot
 import os
 import pickle
@@ -20,12 +17,11 @@ from PyQt5.QtCore import QPropertyAnimation, Qt
 from PyQt5.QtWidgets import QGraphicsOpacityEffect
 from monitor_tab import MonitorTab
 from PyQt5.QtWidgets import QTableWidgetItem
-# Инициализация виджета для отображения таблицы
 import re
 
 
 
-# Функция convert_seconds_to_time_string: Отвечает за ... (детальное описание)
+# Функция convert_seconds_to_time_string: Отвечает за конверт емплас
 def convert_seconds_to_time_string(seconds):
     days, remainder = divmod(seconds, 86400)
     hours, remainder = divmod(remainder, 3600)
@@ -33,26 +29,15 @@ def convert_seconds_to_time_string(seconds):
     return f"{days} d {hours} h {minutes} m {seconds} s"
 
 class ScanTab(QWidget):
+    # Создание сигнала для взаимодействия между потоками и главным окном
     update_table_signal = pyqtSignal(dict, int)
-# Создание сигнала для взаимодействия между потоками и главным окном
-    ip_processed_signal = pyqtSignal(dict, int)
-# Создание сигнала для взаимодействия между потоками и главным окном
-    
-
+    ip_processed_signal = pyqtSignal(dict, int)  
     send_to_monitoring_signal = pyqtSignal(dict)  # мониторинг
-# Создание сигнала для взаимодействия между потоками и главным окном
     scan_finished_signal = pyqtSignal()  # Сигнал, испускаться при завершении сканирования
-# Создание сигнала для взаимодействия между потоками и главным окном
 
-
-
-
-
-# Функция __init__: Отвечает за ... (детальное описание)
     def __init__(self, parent=None):
         super(ScanTab, self).__init__(parent)
         self.monitor_enabled = False  # флаг для отслеживания мониторинга
-
 
         self.scan_thread = None
 
@@ -78,7 +63,7 @@ class ScanTab(QWidget):
 
 
         self.scan_timer = QTimer(self)
-# Инициализация таймера для периодического выполнения задач
+       # Инициализация таймера для периодического выполнения задач
         self.scan_timer.timeout.connect(self.start_scan_and_get_data)
 
         self.asic_search_button = QPushButton("ASIC Save")
@@ -126,8 +111,8 @@ class ScanTab(QWidget):
             }""")
         layout.addWidget(self.progress_bar)
 
-        self.table = QTableWidget(254, 34, self)
-# Инициализация виджета для отображения таблицы
+        self.table = QTableWidget(1000, 20, self)
+    # Инициализация виджета для отображения таблицы
         self.table.setSortingEnabled(True)
 
         self.table.horizontalHeader().setSectionsMovable(True)
@@ -139,10 +124,14 @@ class ScanTab(QWidget):
 
          # Сделать таблицу нередактируемой
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
-# Инициализация виджета для отображения таблицы
+        # Инициализация виджета для отображения таблицы
 
-        self.table.setFixedWidth(3000)
+        
+        self.table.cellClicked.connect(self.open_web_interface)
         self.scrollArea = QScrollArea(self)
+
+        self.scrollArea.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+
         self.scrollArea.setWidgetResizable(True)
         self.scrollArea.setWidget(self.table)
         self.scrollArea.setStyleSheet("""
@@ -172,11 +161,9 @@ class ScanTab(QWidget):
         }
     """)
 
-        self.scrollArea.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
         # Connect cell click event to a method
-        self.table.cellClicked.connect(self.open_web_interface)
-
         layout.addWidget(self.scrollArea)
+
 
         self.table.setHorizontalHeaderLabels(["", "IP", "Status", "Type", "Ths avg", "Ths rt", "Elapsed", "fan_speed", "Temp Chip" , "power", "CompileTime", "URL1", "User1", "Status1", "URL2", "User2", "Status2", "URL3", "User3", "Status3", ])
         self.table.setColumnWidth(0, 30)
@@ -204,17 +191,15 @@ class ScanTab(QWidget):
         self.table.setStyleSheet("""
           
             QTableWidget::item {
-# Инициализация виджета для отображения таблицы
+        # Инициализация виджета для отображения таблицы
                 background-color: #333333;
                 color: #ffffff;
             }
             QTableWidget::item:selected {
-# Инициализация виджета для отображения таблицы
                 background-color: #333333;
                 color: #ffffff;
             }
             QTableWidget::item:hover {
-# Инициализация виджета для отображения таблицы
                 background-color: #333333;
                 color: #ffffff;
             }
@@ -240,27 +225,24 @@ class ScanTab(QWidget):
         """)
         # Подключение сигнала к слоту
         self.ip_processed_signal.connect(self.update_table)
-       
         # Устанавливаем основной макет
         self.setLayout(layout)
-
         # Инициализация атрибута для отслеживания состояния мониторинга
         self.monitor_enabled = False
-
         # Инициализация таймера для регулярного сканирования
         self.monitor_timer = QTimer(self)
-# Инициализация таймера для периодического выполнения задач
+        # Инициализация таймера для периодического выполнения задач мониторинг 
         self.monitor_timer.timeout.connect(self.start_scan_and_get_data)
-        self.monitor_timer.setInterval(300 * 1000)  # 300 сек
+        self.monitor_timer.setInterval(120 * 1000)  # сек
 
 
-# Функция show_upgrade_dialog: Отвечает за ... (детальное описание)
+    # show_upgrade_dialog: Отвечает за кнопку обновление 
     def show_upgrade_dialog(self):
         upgrade_dialog = UpgradeDialog(self)
         upgrade_dialog.exec_()
 
     
-# Функция start_stop_monitor: Отвечает за ... (детальное описание)
+   # Функция start_stop_monitor: стиль кнопки + запус и отключение мониторинга 
     def start_stop_monitor(self):
         if self.monitor_enabled:
             self.monitor_button.setStyleSheet("background-color: red")
@@ -273,7 +255,7 @@ class ScanTab(QWidget):
 
 
 
-# Функция start_scan_and_get_data: Отвечает за ... (детальное описание)
+    # Функция start_scan_and_get_data: запус сканирования 
     def start_scan_and_get_data(self):
 
         print("start_scan_and_get_data method is called.")
@@ -303,7 +285,7 @@ class ScanTab(QWidget):
   
 
 
-# Функция find_or_create_row: Отвечает за ... (детальное описание)
+    # Функция find_or_create_row: ищет дубликаты 
     def find_or_create_row(self, ip):
         # Поиск строки с указанным IP-адресом
         for row in range(self.table.rowCount()):
@@ -323,7 +305,7 @@ class ScanTab(QWidget):
 
 
     @pyqtSlot(dict)
-# Функция update_table: Отвечает за ... (детальное описание)
+    # Функция update_table: определяет модель и вызывает соответвест. функцию 
     def update_table(self, data):  
         processed_data = {}  # Пустой словарь для обработанных данных
 
@@ -355,7 +337,7 @@ class ScanTab(QWidget):
             
 
 
-# Функция convert_string_to_dict: Отвечает за ... (детальное описание)
+    # Функция convert_string_to_dict: антмайнер   
     def convert_string_to_dict(self, data_str):
         data_list = data_str.split(',')
         data_dict = {}
@@ -366,7 +348,7 @@ class ScanTab(QWidget):
             data_dict[key] = value
         return data_dict
     
-# Функция convert_string_to_dict2: Отвечает за ... (детальное описание)
+    # Функция convert_string_to_dict2: ватсы
     def convert_string_to_dict2(self, data_str):
         if isinstance(data_str, dict):
             return data_str
@@ -377,7 +359,7 @@ class ScanTab(QWidget):
 
         
 
-# Функция extract_pool_data: Отвечает за ... (детальное описание)
+    # Функция extract_pool_data: антмайнер 
     def extract_pool_data(self, data):
         """
         Extracts pool data from the provided data dictionary.
@@ -400,7 +382,7 @@ class ScanTab(QWidget):
 
         return pool_list
     
-# Функция process_estats: Отвечает за ... (детальное описание)
+   # Функция process_estats:авалоны 
     def process_estats(self, data):
         """
         Обрабатывает данные estats, возвращая словарь с данными от начала до "POOLS[0]".
@@ -439,7 +421,7 @@ class ScanTab(QWidget):
 
         return combined_data
 
-# Функция parse_section: Отвечает за ... (детальное описание)
+    # Функция parse_section: авалоны 
     def parse_section(self, section):  
         """
         Parses a section and returns a dictionary.
@@ -453,7 +435,7 @@ class ScanTab(QWidget):
                 parsed_dict[key] = value
         return parsed_dict
 
-# Функция parse_estats_data: Отвечает за ... (детальное описание)
+    # Функция parse_estats_data: авалоны 
     def parse_estats_data(self, estats_string):
         """
         Improved function to extract estats data from the provided estats_string.
@@ -485,12 +467,12 @@ class ScanTab(QWidget):
 
         return data_dict
 
-# Функция extract_bracket_values: Отвечает за ... (детальное описание)
+    # Функция extract_bracket_values:авалоны 
     def extract_bracket_values(self, data):
         pattern = re.compile(r'(\w+)\[(\d+\.\d+)]')  # Регулярное выражение для извлечения пар ключ-значение
         return {match.group(1): match.group(2) for match in pattern.finditer(data)}
 
-# Функция process_bitmicro_data_helper: Отвечает за ... (детальное описание)
+    # Функция process_bitmicro_data_helper: ватсы 
     def process_bitmicro_data_helper(self, data):
         # Initialize an empty dictionary to hold the processed data
         processed_data = {}
@@ -521,23 +503,23 @@ class ScanTab(QWidget):
         
         return processed_data
     
-# Функция process_common_data: Отвечает за ... (детальное описание)
+    # Функция process_common_data: ватсы 
     def process_common_data(self, row_for_ip, is_new_row, ip, detailed_stats):
         if is_new_row:
             # Добавляем флажок и IP только для новых строк
             item = QTableWidgetItem()
-# Инициализация виджета для отображения таблицы
+        # Инициализация виджета для отображения таблицы
             item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
             item.setCheckState(Qt.Unchecked)
             self.table.setItem(row_for_ip, 0, item)
 
             item = QTableWidgetItem(ip)
-# Инициализация виджета для отображения таблицы
+        # Инициализация виджета для отображения таблицы
             item.setTextAlignment(Qt.AlignCenter)  # Выравниваем текст по центру
             item.setToolTip(ip)  # Устанавливаем всплывающую подсказку
             self.table.setItem(row_for_ip, 1, item)
 
-# Функция process_avalon_data: Отвечает за ... (детальное описание)
+# Функция process_avalon_data:  обробатыват авалон
     def process_avalon_data(self, ip, data):
 
         if not isinstance(data, dict):
@@ -570,7 +552,6 @@ class ScanTab(QWidget):
 
         # Add checkbox only for a new row
         item = QTableWidgetItem()
-# Инициализация виджета для отображения таблицы
         item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
         item.setCheckState(Qt.Unchecked)
         self.table.setItem(row_for_ip, 0, item)
@@ -578,7 +559,6 @@ class ScanTab(QWidget):
 
         if is_new_row:
             item = QTableWidgetItem()
-# Инициализация виджета для отображения таблицы
             item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
             item.setCheckState(Qt.Unchecked)
             self.table.setItem(row_for_ip, 0, item)
@@ -587,18 +567,15 @@ class ScanTab(QWidget):
         
         if 'PROD' in stats_data:
             self.table.setItem(row_for_ip, 3, QTableWidgetItem(stats_data['PROD']))
-# Инициализация виджета для отображения таблицы
             item.setTextAlignment(Qt.AlignCenter)  # Выровнять текст по центру
         
         if 'GHSmm' in detailed_stats:
             item = QTableWidgetItem(detailed_stats['GHSmm'])
-# Инициализация виджета для отображения таблицы
             item.setTextAlignment(Qt.AlignCenter)  # Выровнять текст по центру
             self.table.setItem(row_for_ip, 4, item)
      
         if 'GHSavg' in detailed_stats:
             item = QTableWidgetItem(detailed_stats['GHSavg'])
-# Инициализация виджета для отображения таблицы
             item.setTextAlignment(Qt.AlignCenter)  # Выровнять текст по центру
             self.table.setItem(row_for_ip, 5, item)
 
@@ -607,7 +584,6 @@ class ScanTab(QWidget):
             elapsed_time = convert_seconds_to_time_string(elapsed_seconds)
             item.setTextAlignment(Qt.AlignCenter)  # Выровнять текст по центру
             self.table.setItem(row_for_ip, 6, QTableWidgetItem(elapsed_time))
-# Инициализация виджета для отображения таблицы
 
         fan_keys = ['Fan1', 'Fan2', 'Fan3', 'Fan4']
         fan_values = [detailed_stats[key] for key in fan_keys if key in detailed_stats]
@@ -616,7 +592,6 @@ class ScanTab(QWidget):
 
         if fan_str:
             item = QTableWidgetItem(fan_str)
-# Инициализация виджета для отображения таблицы
             item.setTextAlignment(Qt.AlignCenter)  # Выровнять текст по центру
             self.table.setItem(row_for_ip, 7, item)
 
@@ -626,25 +601,32 @@ class ScanTab(QWidget):
     
             if mtavg_str:
                item = QTableWidgetItem(mtavg_str)
-# Инициализация виджета для отображения таблицы
                item.setTextAlignment(Qt.AlignCenter)  # Выровнять текст по центру
                self.table.setItem(row_for_ip, 8, item) 
         
         if 'PS' in detailed_stats:
-            item = QTableWidgetItem(detailed_stats['PS'])
-# Инициализация виджета для отображения таблицы
+            ps_values = re.findall(r'\d+', detailed_stats['PS'])  # Используем регулярные выражения для извлечения всех чисел
+            last_value = ps_values[-1] if ps_values else 'N/A'  # Берем последнее число или 'N/A', если список пуст
+    
+            print(f"Last value before setting to the table: {last_value}")  # Печатаем значение перед установкой
+    
+            item = QTableWidgetItem(last_value)
             item.setTextAlignment(Qt.AlignCenter)  # Выровнять текст по центру
-            self.table.setItem(row_for_ip, 9, item) 
+            item.setToolTip(detailed_stats['PS'])  # Устанавливаем полную строку в качестве всплывающей подсказки
+            self.table.setItem(row_for_ip, 9, item)
+
+
+
+
+ 
  
         if 'Ver' in detailed_stats:
             item = QTableWidgetItem(detailed_stats['Ver'])
-# Инициализация виджета для отображения таблицы
             item.setTextAlignment(Qt.AlignCenter)  # Выровнять текст по центру
             self.table.setItem(row_for_ip, 10, item)  
 
 
-        # Define function to get the pool status symbol
-# Функция get_pool_status_symbol: Отвечает за ... (детальное описание)
+        # Функция get_pool_status_symbol
         def get_pool_status_symbol(status):
             if status == "Alive":
                 return "✅"
@@ -662,32 +644,31 @@ class ScanTab(QWidget):
         if not pools_list:
             return
 
-        for i, pool in enumerate(pools_list):
+        # Limit the iteration to only 3 pools
+        for i, pool in enumerate(pools_list[:3]):
             pool_url_item = QTableWidgetItem(pool.get('URL', 'N/A'))
-# Инициализация виджета для отображения таблицы
+            # Инициализация виджета для отображения таблицы
             pool_url_item.setTextAlignment(Qt.AlignCenter)
+    
             worker_item = QTableWidgetItem(pool.get('User', 'N/A'))
-# Инициализация виджета для отображения таблицы
+             # Инициализация виджета для отображения таблицы
             worker_item.setTextAlignment(Qt.AlignCenter)
+    
             status_symbol = get_pool_status_symbol(pool.get('Status', 'N/A'))
             status_item = QTableWidgetItem(status_symbol)
-# Инициализация виджета для отображения таблицы
+            # Инициализация виджета для отображения таблицы
             status_item.setTextAlignment(Qt.AlignCenter)
-            last_share_time_item = QTableWidgetItem(pool.get('Last Share Time', 'N/A'))
-# Инициализация виджета для отображения таблицы
-            last_share_time_item.setTextAlignment(Qt.AlignCenter)
 
-            base_column = 11 + i * 4
+            base_column = 11 + i * 3  # Only 3 columns per pool now
             self.table.setItem(row_for_ip, base_column, pool_url_item)
             self.table.setItem(row_for_ip, base_column + 1, worker_item)
             self.table.setItem(row_for_ip, base_column + 2, status_item)
-            self.table.setItem(row_for_ip, base_column + 3, last_share_time_item)
 
         detailed_stats['ip_address'] = ip  # Добавляем IP-адрес в данные
         self.send_to_monitoring_signal.emit(detailed_stats)  # отправка данных после обработки
 
 
-# Функция process_antminer_data: Отвечает за ... (детальное описание)
+# Функция process_antminer_data:обробатывает антмайнер сток + вниш 17 с9 л3 
     def process_antminer_data(self, ip, data):
        
         # Check if data is a dictionary
@@ -713,7 +694,6 @@ class ScanTab(QWidget):
 
         # Add checkbox only for a new row
         item = QTableWidgetItem()
-# Инициализация виджета для отображения таблицы
         item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
         item.setCheckState(Qt.Unchecked)
         self.table.setItem(row_for_ip, 0, item)
@@ -721,7 +701,6 @@ class ScanTab(QWidget):
 
         if is_new_row:
             item = QTableWidgetItem()
-# Инициализация виджета для отображения таблицы
             item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
             item.setCheckState(Qt.Unchecked)
             self.table.setItem(row_for_ip, 0, item)
@@ -729,20 +708,17 @@ class ScanTab(QWidget):
 
         if 'Type' in stats_data:
             self.table.setItem(row_for_ip, 3, QTableWidgetItem(stats_data['Type']))
-# Инициализация виджета для отображения таблицы
             item.setTextAlignment(Qt.AlignCenter)  # Выровнять текст по центру
 
        
         if 'GHS av' in detailed_stats:
             item = QTableWidgetItem(str(detailed_stats['GHS av']))
-# Инициализация виджета для отображения таблицы
             item.setTextAlignment(Qt.AlignCenter)  # Выровнять текст по центру
             self.table.setItem(row_for_ip, 4, item)
 
     
         if 'GHS 5s' in detailed_stats:
             item = QTableWidgetItem(str(detailed_stats['GHS 5s']))
-# Инициализация виджета для отображения таблицы
             item.setTextAlignment(Qt.AlignCenter)  # Выровнять текст по центру
             self.table.setItem(row_for_ip, 5, item)
 
@@ -752,7 +728,6 @@ class ScanTab(QWidget):
             item.setTextAlignment(Qt.AlignCenter)  # Выровнять текст по центру
 
             self.table.setItem(row_for_ip, 6, QTableWidgetItem(elapsed_time))
-# Инициализация виджета для отображения таблицы
 
         if 'fan_num' in detailed_stats:
             fan_num = int(detailed_stats['fan_num'])
@@ -763,7 +738,6 @@ class ScanTab(QWidget):
                     fans.append(str(detailed_stats[fan_key]))
             fans_str = "/".join(fans)
             item = QTableWidgetItem(fans_str)
-# Инициализация виджета для отображения таблицы
             item.setTextAlignment(Qt.AlignCenter)
             self.table.setItem(row_for_ip, 7, item)
             self.table.setColumnWidth(7, 125)
@@ -771,7 +745,6 @@ class ScanTab(QWidget):
         if 'temp2_1' in detailed_stats and 'temp2_2' in detailed_stats and 'temp2_3' in detailed_stats:
             temps = [detailed_stats['temp2_1'], detailed_stats['temp2_2'], detailed_stats['temp2_3']]
             item = QTableWidgetItem(f"{temps[0]}/{temps[1]}/{temps[2]}")
-# Инициализация виджета для отображения таблицы
             item.setTextAlignment(Qt.AlignCenter)
             self.table.setItem(row_for_ip, 8, item)
 
@@ -783,16 +756,13 @@ class ScanTab(QWidget):
             # Отображение полученного значения в таблице
         if total_chain_consumption:
             item = QTableWidgetItem(str(total_chain_consumption))
-# Инициализация виджета для отображения таблицы
             item.setTextAlignment(Qt.AlignCenter)  # Выровнять текст по центру
             self.table.setItem(row_for_ip, 9, item)  # Замените COLUMN_INDEX на соответствующий индекс столбца
 
         if 'CompileTime' in stats_data:
             self.table.setItem(row_for_ip, 10, QTableWidgetItem(stats_data['CompileTime']))
-# Инициализация виджета для отображения таблицы
         
         
-# Функция get_pool_status_symbol: Отвечает за ... (детальное описание)
         def get_pool_status_symbol(status):
             if status == "Alive":
                 return "✅"
@@ -808,34 +778,29 @@ class ScanTab(QWidget):
         # Since pool_data itself is the list of pools, you don't need to extract 'POOLS' from it
         pools_list = pool_data
         if not pools_list:
-            return
+           return
 
-        for i, pool in enumerate(pools_list):
+       # Limit the iteration to only 3 pools
+        for i, pool in enumerate(pools_list[:3]):
             pool_url_item = QTableWidgetItem(pool.get('URL', 'N/A'))
-# Инициализация виджета для отображения таблицы
             pool_url_item.setTextAlignment(Qt.AlignCenter)
             worker_item = QTableWidgetItem(pool.get('User', 'N/A'))
-# Инициализация виджета для отображения таблицы
             worker_item.setTextAlignment(Qt.AlignCenter)
             status_symbol = get_pool_status_symbol(pool.get('Status', 'N/A'))
             status_item = QTableWidgetItem(status_symbol)
-# Инициализация виджета для отображения таблицы
             status_item.setTextAlignment(Qt.AlignCenter)
-            last_share_time_item = QTableWidgetItem(pool.get('Last Share Time', 'N/A'))
-# Инициализация виджета для отображения таблицы
-            last_share_time_item.setTextAlignment(Qt.AlignCenter)
 
-            base_column = 11 + i * 4
+            base_column = 11 + i * 3  # Only 3 columns per pool now
             self.table.setItem(row_for_ip, base_column, pool_url_item)
             self.table.setItem(row_for_ip, base_column + 1, worker_item)
             self.table.setItem(row_for_ip, base_column + 2, status_item)
-            self.table.setItem(row_for_ip, base_column + 3, last_share_time_item)
+
 
         detailed_stats['ip_address'] = ip  # Добавляем IP-адрес в данные
         self.send_to_monitoring_signal.emit(detailed_stats)  # отправка данных после обработки
 
 
-# Функция process_bitmicro_data: Отвечает за ... (детальное описание)
+# Функция process_bitmicro_data: обробатывает ватсмайнеры 
     def process_bitmicro_data(self, ip, data):
         
         detailed_stats = {}
@@ -864,7 +829,6 @@ class ScanTab(QWidget):
 
         # Add checkbox only for a new row
         item = QTableWidgetItem()
-# Инициализация виджета для отображения таблицы
         item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
         item.setCheckState(Qt.Unchecked)
         self.table.setItem(row_for_ip, 0, item)
@@ -873,7 +837,6 @@ class ScanTab(QWidget):
          # IP
         if is_new_row:
             item = QTableWidgetItem(ip)
-# Инициализация виджета для отображения таблицы
             item.setTextAlignment(Qt.AlignCenter)  # Align text center
             item.setToolTip(ip)  # Set tooltip
             self.table.setItem(row_for_ip, 1, item)
@@ -882,11 +845,13 @@ class ScanTab(QWidget):
         # Model (3rd column)
         if 'devdetails' in processed_data:
             model_data = processed_data['devdetails'][0].get('Model', '')
-            item = QTableWidgetItem(str(model_data))
-# Инициализация виджета для отображения таблицы
+            # Добавьте 'WhatsMiner' перед моделью
+            full_model_data = f'WhatsMiner {model_data}' if model_data else 'WhatsMiner'
+            item = QTableWidgetItem(str(full_model_data))
             item.setTextAlignment(Qt.AlignCenter)
             self.table.setItem(row_for_ip, 3, item)
-            detailed_stats['Model'] = model_data
+            detailed_stats['Model'] = full_model_data
+
 
 
        # MHS 5s (4th column)
@@ -894,7 +859,6 @@ class ScanTab(QWidget):
             mhs_5s_mhs = processed_data['summary'].get('MHS 5s', 0)  # Здесь, я предполагаю, что если данных нет, то значение равно 0
             mhs_5s_ghs = mhs_5s_mhs / 1e3  # Преобразование в гигахэши
             item = QTableWidgetItem(f"{mhs_5s_ghs:.2f} GH/s")  # Округление до двух знаков после запятой и добавление "GH/s"
-# Инициализация виджета для отображения таблицы
             item.setTextAlignment(Qt.AlignCenter)
             self.table.setItem(row_for_ip, 4, item)
             detailed_stats['MHS_5s'] = mhs_5s_ghs
@@ -903,7 +867,6 @@ class ScanTab(QWidget):
         hs_rt_mhs = processed_data['summary'].get('HS RT', 0)  # Здесь, я предполагаю, что если данных нет, то значение равно 0
         hs_rt_ghs = hs_rt_mhs / 1e3  # Преобразование в гигахэши
         item = QTableWidgetItem(f"{hs_rt_ghs:.2f} GH/s")  # Округление до двух знаков после запятой и добавление "GH/s"
-# Инициализация виджета для отображения таблицы
         item.setTextAlignment(Qt.AlignCenter)
         self.table.setItem(row_for_ip, 5, item)
         detailed_stats['HS_RT'] = hs_rt_ghs
@@ -914,7 +877,6 @@ class ScanTab(QWidget):
             elapsed_time = processed_data['summary']['Elapsed']
             elapsed_time = convert_seconds_to_time_string(elapsed_time)
             item = QTableWidgetItem(str(elapsed_time))
-# Инициализация виджета для отображения таблицы
             item.setTextAlignment(Qt.AlignCenter)
             self.table.setItem(row_for_ip, 6, item)  # Предположим, что 5 - это индекс колонки "Время работы"
             detailed_stats['Elapsed'] = elapsed_time
@@ -923,7 +885,6 @@ class ScanTab(QWidget):
         fan_in = processed_data['summary'].get('Fan Speed In', '')
         fan_out = processed_data['summary'].get('Fan Speed Out', '')
         item = QTableWidgetItem(f"{fan_in}/{fan_out}")
-# Инициализация виджета для отображения таблицы
         item.setTextAlignment(Qt.AlignCenter)
         self.table.setItem(row_for_ip, 7, item)
         detailed_stats['Fan_In'] = fan_in
@@ -935,7 +896,6 @@ class ScanTab(QWidget):
             temps = [str(dev.get('Temperature', '')) for dev in processed_data['edevs']]
             detailed_stats['Temps'] = temps
             item = QTableWidgetItem('/'.join(temps))
-# Инициализация виджета для отображения таблицы
             item.setTextAlignment(Qt.AlignCenter)
             self.table.setItem(row_for_ip, 8, item)
 
@@ -943,7 +903,6 @@ class ScanTab(QWidget):
         # Power (13th column)
         power = processed_data['summary'].get('Power', '')
         item = QTableWidgetItem(str(power))
-# Инициализация виджета для отображения таблицы
         item.setTextAlignment(Qt.AlignCenter)
         self.table.setItem(row_for_ip, 9, item)
         detailed_stats['Power'] = power
@@ -955,7 +914,6 @@ class ScanTab(QWidget):
 
     
         # Функция для получения символа статуса пула
-# Функция get_pool_status_symbol: Отвечает за ... (детальное описание)
         def get_pool_status_symbol(status):
             if status == "Alive":
                 return "✅"
@@ -963,27 +921,21 @@ class ScanTab(QWidget):
                 return "❌"
             else:
                 return status
-    
-        for i, pool in enumerate(pool_data):
+
+         # Limit the iteration to only 3 pools
+        for i, pool in enumerate(pool_data[:3]):
             pool_url_item = QTableWidgetItem(pool.get('URL', 'N/A'))
-# Инициализация виджета для отображения таблицы
             pool_url_item.setTextAlignment(Qt.AlignCenter)
             worker_item = QTableWidgetItem(pool.get('User', 'N/A'))
-# Инициализация виджета для отображения таблицы
             worker_item.setTextAlignment(Qt.AlignCenter)
             status_symbol = get_pool_status_symbol(pool.get('Status', 'N/A'))
             status_item = QTableWidgetItem(status_symbol)
-# Инициализация виджета для отображения таблицы
             status_item.setTextAlignment(Qt.AlignCenter)
-            last_share_time_item = QTableWidgetItem(str(pool.get('Last Share Time', 'N/A')))
-# Инициализация виджета для отображения таблицы
-            last_share_time_item.setTextAlignment(Qt.AlignCenter)
 
-            base_column = 11 + i * 4 
+            base_column = 11 + i * 3  # Only 3 columns per pool now
             self.table.setItem(row_for_ip, base_column, pool_url_item)
             self.table.setItem(row_for_ip, base_column + 1, worker_item)
             self.table.setItem(row_for_ip, base_column + 2, status_item)
-            self.table.setItem(row_for_ip, base_column + 3, last_share_time_item)
 
 
       
@@ -993,14 +945,14 @@ class ScanTab(QWidget):
 
 
     
-# Функция scan_finished: Отвечает за ... (детальное описание)
+# Функция scan_finished: вывод сообщения о завершении 
     def scan_finished(self, row_count):
         self.send_to_monitoring_signal.emit({'is_final': True})
         if not self.monitor_enabled:
             QMessageBox.information(self, 'Сканирование завершено', f'Найдено {row_count:} устройств.')
 
 
-# Функция open_web_interface: Отвечает за ... (детальное описание)
+# Функция open_web_interface: открывает айпи по нажатию 
     def open_web_interface(self, row, col):
         # Check if the clicked cell is the IP cell
         if col == 1:
@@ -1013,7 +965,7 @@ class ScanTab(QWidget):
 
 
 
-# Функция save_values: Отвечает за ... (детальное описание)
+   # Функция save_values: Отвечает за ... (детальное описание)
     def save_values(self):
         self.asic_values = []
         for row in range(self.table.rowCount()):
@@ -1021,7 +973,7 @@ class ScanTab(QWidget):
             if item is not None:
                 self.asic_values.append(item.text())
 
-# Функция hideEvent: Отвечает за ... (детальное описание)
+      # Функция hideEvent: Отвечает за ... (детальное описание)
     def hideEvent(self, event):
         super().hideEvent(event)
         self.save_values()

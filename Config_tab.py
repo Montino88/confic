@@ -10,3 +10,8 @@ class ConfigTab(QWidget):
         layout.addWidget(label)
 
         self.setLayout(layout)
+    def load_data(self):
+        self.data = 'Data for moni hTab'
+
+    def save_data(self):
+        print(f"Saving data: {self.data}")

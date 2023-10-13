@@ -10,8 +10,8 @@ from json import JSONDecodeError
 from collections import defaultdict
 
 PORTS = [80, 4028]
-TIMEOUT = 2
-SEM_LIMIT = 50
+TIMEOUT = 5
+SEM_LIMIT = 90
 # Глобальное множество для хранения известных IP-адресов 
 known_ips = set()
 
