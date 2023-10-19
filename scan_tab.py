@@ -285,7 +285,7 @@ class ScanTab(QWidget):
   
 
 
-    # Функция find_or_create_row: ищет дубликаты 
+   # Функция find_or_create_row: ищет дубликаты 
     def find_or_create_row(self, ip):
         # Поиск строки с указанным IP-адресом
         for row in range(self.table.rowCount()):
@@ -299,9 +299,7 @@ class ScanTab(QWidget):
         self.table.insertRow(row_for_ip)
         print(f"Created new row for IP {ip} at index {row_for_ip}")
 
-        return row_for_ip, True  # Возвращаем индекс и флаг isNew=True
-      
-
+        return row_for_ip, True  # Возвращаем индекс и флаг isNew=True     
 
 
     @pyqtSlot(dict)
@@ -564,7 +562,6 @@ class ScanTab(QWidget):
             self.table.setItem(row_for_ip, 0, item)
     
 
-        
         if 'PROD' in stats_data:
             self.table.setItem(row_for_ip, 3, QTableWidgetItem(stats_data['PROD']))
             item.setTextAlignment(Qt.AlignCenter)  # Выровнять текст по центру
@@ -608,18 +605,13 @@ class ScanTab(QWidget):
             ps_values = re.findall(r'\d+', detailed_stats['PS'])  # Используем регулярные выражения для извлечения всех чисел
             last_value = ps_values[-1] if ps_values else 'N/A'  # Берем последнее число или 'N/A', если список пуст
     
-            print(f"Last value before setting to the table: {last_value}")  # Печатаем значение перед установкой
-    
+
             item = QTableWidgetItem(last_value)
             item.setTextAlignment(Qt.AlignCenter)  # Выровнять текст по центру
             item.setToolTip(detailed_stats['PS'])  # Устанавливаем полную строку в качестве всплывающей подсказки
             self.table.setItem(row_for_ip, 9, item)
 
 
-
-
- 
- 
         if 'Ver' in detailed_stats:
             item = QTableWidgetItem(detailed_stats['Ver'])
             item.setTextAlignment(Qt.AlignCenter)  # Выровнять текст по центру
@@ -668,7 +660,7 @@ class ScanTab(QWidget):
         self.send_to_monitoring_signal.emit(detailed_stats)  # отправка данных после обработки
 
 
-# Функция process_antminer_data:обробатывает антмайнер сток + вниш 17 с9 л3 
+    # Функция process_antminer_data:обробатывает антмайнер сток + вниш 17 с9 л3 
     def process_antminer_data(self, ip, data):
        
         # Check if data is a dictionary
@@ -800,7 +792,8 @@ class ScanTab(QWidget):
         self.send_to_monitoring_signal.emit(detailed_stats)  # отправка данных после обработки
 
 
-# Функция process_bitmicro_data: обробатывает ватсмайнеры 
+
+    # Функция process_bitmicro_data: обробатывает ватсмайнеры 
     def process_bitmicro_data(self, ip, data):
         
         detailed_stats = {}
@@ -941,6 +934,7 @@ class ScanTab(QWidget):
       
         detailed_stats['ip_address'] = ip
         self.send_to_monitoring_signal.emit(detailed_stats)
+
   
 
 
