@@ -6,10 +6,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QDockWidget, QListWidget
                              QWidget, QLabel, QVBoxLayout, QAbstractItemView, QStackedWidget)
 from PyQt5.QtGui import QIcon
 from PyQt5.QtCore import Qt, QSize
-from monitor_tab import MonitorTab
 from scan_tab import ScanTab
-#from table_tab import TableTab
-from Config_tab import ConfigTab
 from settings_tab import SettingsTab
 
 # Класс для создания кликабельных виджетов
@@ -54,28 +51,20 @@ class MainWindow(QMainWindow):
 
         # Создание вкладок
         self.scan_tab = ScanTab(self)
-        self.monitor_tab = MonitorTab(self, self.scan_tab.start_scan_and_get_data)
 
        # self.table_tab = TableTab(self)
-        self.config_tab = ConfigTab(self)
         self.settings_tab = SettingsTab(self)
 
         # Инициализация стека виджетов
         self.stack = QStackedWidget(self)
         self.stack.addWidget(self.scan_tab)
-        self.stack.addWidget(self.monitor_tab)
-      #  self.stack.addWidget(self.table_tab)
-        self.stack.addWidget(self.config_tab)
         self.stack.addWidget(self.settings_tab)
         self.setCentralWidget(self.stack)
 
         # Словарь для соответствия между элементами меню и вкладками
         self.tab_dict = {
             0: self.scan_tab,
-            1: self.monitor_tab,
-            #2: self.table_tab,
-            3: self.config_tab,
-            4: self.settings_tab
+            1: self.settings_tab
         }
 
         # Настройка стилей
@@ -115,11 +104,7 @@ class MainWindow(QMainWindow):
 
 
         self.add_menu_item("Scan", base_path + "scan.png", ScanTab)
-        self.add_menu_item("Monitor", base_path + "monitor.png", MonitorTab)
-       # self.add_menu_item("Table", base_path + "table.png", TableTab)
-        self.add_menu_item("Config", base_path + "Config.png", ConfigTab)
         self.add_menu_item("Settings", base_path + "setting.png", SettingsTab)
-      # self.add_support_button("Support", base_path + "support.png")
 
         for _ in range(12):
             item = QListWidgetItem()
@@ -162,12 +147,9 @@ class MainWindow(QMainWindow):
         self.current_tab = None
 
         # слоты
-        self.scan_tab.send_to_monitoring_signal.connect(self.monitor_tab.receive_from_scan)
         self.scan_tab.scan_finished_signal.connect(self.forward_scan_finished)
 
-         # Создание экземпляров ScanTab и MonitorTab
-        self.scan_tab = ScanTab(self)
-        self.monitor_tab = MonitorTab(self, self.scan_tab.start_scan_and_get_data)
+       
         
 
         # Сигналы и слоты
@@ -219,12 +201,6 @@ class MainWindow(QMainWindow):
         self.list_widget.addItem(item)
         self.list_widget.setItemWidget(item, item_widget)
 
-   # def add_support_button(self, text, icon_path):
-      #  button_widget = IconLabelWidget(icon_path, text, '')
-      #  button = QListWidgetItem()
-      #  button.setSizeHint(button_widget.sizeHint())
-      #  self.list_widget.addItem(button)
-      #  self.list_widget.setItemWidget(button, button_widget)
 
 
 if __name__ == "__main__":

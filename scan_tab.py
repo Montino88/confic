@@ -15,7 +15,6 @@ import pickle
 from PyQt5 import QtWidgets
 from PyQt5.QtCore import QPropertyAnimation, Qt
 from PyQt5.QtWidgets import QGraphicsOpacityEffect
-from monitor_tab import MonitorTab
 from PyQt5.QtWidgets import QTableWidgetItem
 import re
 
@@ -32,7 +31,6 @@ class ScanTab(QWidget):
     # Создание сигнала для взаимодействия между потоками и главным окном
     update_table_signal = pyqtSignal(dict, int)
     ip_processed_signal = pyqtSignal(dict, int)  
-    send_to_monitoring_signal = pyqtSignal(dict)  # мониторинг
     scan_finished_signal = pyqtSignal()  # Сигнал, испускаться при завершении сканирования
 
     def __init__(self, parent=None):
@@ -656,11 +654,9 @@ class ScanTab(QWidget):
             self.table.setItem(row_for_ip, base_column + 1, worker_item)
             self.table.setItem(row_for_ip, base_column + 2, status_item)
 
-        detailed_stats['ip_address'] = ip  # Добавляем IP-адрес в данные
-        self.send_to_monitoring_signal.emit(detailed_stats)  # отправка данных после обработки
+     
 
-
-    # Функция process_antminer_data:обробатывает антмайнер сток + вниш 17 с9 л3 
+ # Функция process_antminer_data:обробатывает антмайнер сток + вниш 17 с9 л3 
     def process_antminer_data(self, ip, data):
        
         # Check if data is a dictionary
@@ -788,12 +784,8 @@ class ScanTab(QWidget):
             self.table.setItem(row_for_ip, base_column + 2, status_item)
 
 
-        detailed_stats['ip_address'] = ip  # Добавляем IP-адрес в данные
-        self.send_to_monitoring_signal.emit(detailed_stats)  # отправка данных после обработки
 
 
-
-    # Функция process_bitmicro_data: обробатывает ватсмайнеры 
     def process_bitmicro_data(self, ip, data):
         
         detailed_stats = {}
@@ -929,11 +921,7 @@ class ScanTab(QWidget):
             self.table.setItem(row_for_ip, base_column, pool_url_item)
             self.table.setItem(row_for_ip, base_column + 1, worker_item)
             self.table.setItem(row_for_ip, base_column + 2, status_item)
-
-
       
-        detailed_stats['ip_address'] = ip
-        self.send_to_monitoring_signal.emit(detailed_stats)
 
   
 
@@ -941,7 +929,6 @@ class ScanTab(QWidget):
     
 # Функция scan_finished: вывод сообщения о завершении 
     def scan_finished(self, row_count):
-        self.send_to_monitoring_signal.emit({'is_final': True})
         if not self.monitor_enabled:
             QMessageBox.information(self, 'Сканирование завершено', f'Найдено {row_count:} устройств.')
 
