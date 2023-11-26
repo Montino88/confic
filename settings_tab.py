@@ -7,10 +7,17 @@ import os
 
 class SettingsTab(QWidget):
     ip_range_changed = pyqtSignal(list)  # новый сигнал
+    ip_range_saved = pyqtSignal(list)  # Сигнал, испускаемый после сохранения IP-адресов
+
+
+
+
 
     def __init__(self, parent=None):
         super(SettingsTab, self).__init__(parent)
         layout = QVBoxLayout()
+        self.changes_made = False  # Флаг, показывающий были ли сделаны изменения
+
 
 
 
@@ -53,9 +60,10 @@ class SettingsTab(QWidget):
         self.load_data()
 
     def save_ip(self):
-        self.save_data()  
+        self.save_data()  # Сохраняем IP-адреса и испускаем сигнал
         dialog = CustomDialog(self)
         dialog.exec_()
+
 
     def hideEvent(self, event):
         super().hideEvent(event)
@@ -76,30 +84,32 @@ class SettingsTab(QWidget):
                 self.ip_table.insertRow(row)
                 self.ip_table.setItem(row, 0, QTableWidgetItem(ip))
                 print(f"Added IP: {ip}")
-
+                self.changes_made = True
 
     def remove_ip(self):
         row = self.ip_table.currentRow()
         if row != -1: 
             self.ip_table.removeRow(row)
+            self.changes_made = True
+
 
     def save_data(self):
         print("Saving data for SettingsTab")
-    
-         # Сохраняем только заполненные строки
+        ip_list = []
+
+    # Сохраняем только заполненные строки
         for row in range(self.ip_table.rowCount()):
             item = self.ip_table.item(row, 0)
         
             # Если ячейка не пуста
             if item is not None and item.text().strip():
+                ip_list.append(item.text().strip())
                 filename = f"ip{row+1}.txt"
-              
                 with open(filename, 'w') as f:
                     f.write(item.text().strip())
-            
                 print(f"Saved IP address to {filename}: {item.text().strip()}")
 
-             # Если ячейка пуста
+        # Если ячейка пуста
             else:
                 try:
                     filename = f"ip{row+1}.txt"
@@ -107,6 +117,12 @@ class SettingsTab(QWidget):
                     print(f"Removed empty IP file {filename}")
                 except FileNotFoundError:
                     pass
+
+        if self.changes_made:
+            self.ip_range_saved.emit(ip_list)
+            self.changes_made = False  # Испускаем сигнал с обновленным списком IP-адресов
+
+
 
 
    

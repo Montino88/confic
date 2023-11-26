@@ -51,9 +51,13 @@ class MainWindow(QMainWindow):
 
         # Создание вкладок
         self.scan_tab = ScanTab(self)
-
-       # self.table_tab = TableTab(self)
         self.settings_tab = SettingsTab(self)
+
+        # Установление соединения между сигналом и слотом
+        self.settings_tab.ip_range_saved.connect(self.scan_tab.on_ip_range_saved)
+
+
+
 
         # Инициализация стека виджетов
         self.stack = QStackedWidget(self)
@@ -148,6 +152,8 @@ class MainWindow(QMainWindow):
 
         # слоты
         self.scan_tab.scan_finished_signal.connect(self.forward_scan_finished)
+        # сигнал по изменению айпи 
+
 
        
         
