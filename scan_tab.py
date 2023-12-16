@@ -1,7 +1,8 @@
 from PyQt5.QtWidgets import (QAbstractItemView, QCheckBox, QDialog, QFileDialog, QHBoxLayout, 
                              QHeaderView, QMessageBox, QLabel, QProgressBar, QPushButton, QScrollArea, 
                              QSizePolicy, QSpacerItem, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
-from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QUrl
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
+from PyQt5.QtWidgets import QLineEdit, QComboBox
 from PyQt5.QtGui import QColor, QDesktopServices, QPalette
 import traceback
 from scan_thread import ScanThread
@@ -17,8 +18,25 @@ from PyQt5.QtCore import QPropertyAnimation, Qt
 from PyQt5.QtWidgets import QGraphicsOpacityEffect
 from PyQt5.QtWidgets import QTableWidgetItem
 import re
+import socket
+import time
+import requests
 
 
+
+class CommandExecutor:
+    def __init__(self):
+        self.credentials = {}  # Словарь для хранения учетных данных
+
+    def set_credentials(self, model, login, password):
+        # Установка учетных данных для модели устройства
+        self.credentials[model] = {'login': login, 'password': password}
+        # Вывод информации о сохраненных учетных данных
+        print(f"Учетные данные для модели {model} установлены: логин {login}, пароль {password}")
+        
+    def get_credentials(self, model):
+        # Получение учетных данных для модели майнера
+        return self.credentials.get(model, {})
 
 # Функция convert_seconds_to_time_string: Отвечает за конверт емплас
 def convert_seconds_to_time_string(seconds):
@@ -32,16 +50,18 @@ class ScanTab(QWidget):
     update_table_signal = pyqtSignal(dict, int)
     ip_processed_signal = pyqtSignal(dict, int)  
     scan_finished_signal = pyqtSignal()  # Сигнал, испускаться при завершении сканирования
+    # В ScanTab, замените сигнал на этот
+    update_control_tab_signal = pyqtSignal(list)
+
      
-
-
     def __init__(self, parent=None):
         super(ScanTab, self).__init__(parent)
         self.global_ip_set = set()  # Инициализация множества для хранения активных IP-адресов
-
+        self.led_status = {}
+        self.threads = []
        
-
-
+        
+        self.led_state = False  # Состояние светодиода: False - выключен, True - включен
 
         self.monitor_enabled = False  # флаг для отслеживания мониторинга
 
@@ -51,21 +71,16 @@ class ScanTab(QWidget):
         self.open_ports = {}
         self.row_count = 0
 
-
-      
         # Сбор IP-адресов
-        
+        self.command_executor = CommandExecutor()
         self.scan_thread = ScanThread(self)
 
-        
-
-        
         layout = QVBoxLayout()
 
         button_layout = QHBoxLayout()
         button_layout.setContentsMargins(0, -10, 0, 0)
 
-       #  кнопки
+        #  кнопки
         self.scan_button = QPushButton("Scan")
         self.scan_button.clicked.connect(self.start_scan_and_get_data)
 
@@ -75,20 +90,9 @@ class ScanTab(QWidget):
         self.asic_search_button = QPushButton("Ip list")
         self.asic_search_button.clicked.connect(self.save_ips_to_file)
 
-        self.update_button = QPushButton("Update")
-        self.update_button.clicked.connect(self.show_upgrade_dialog)
-
+      
        
-        self.find_miner_button = QPushButton("Find Miner")
-        
-
-        self.settings_pool_button = QPushButton("Settings Pool")
-       
-
-        self.reboot_button = QPushButton("Reboot")
-        
-
-       # Стилизация кнопок (применяется ко всем кнопкам)
+        # Стилизация кнопок (применяется ко всем кнопкам)
         self.setStyleSheet("""
             QPushButton { 
                 color: white;
@@ -105,14 +109,11 @@ class ScanTab(QWidget):
             }
         """)
 
-          # Добавление кнопок в макет
+        # Добавление кнопок в макет
         button_layout.addWidget(self.scan_button)
         button_layout.addWidget(self.monitor_button)
         button_layout.addWidget(self.asic_search_button)
-        button_layout.addWidget(self.update_button)
-        button_layout.addWidget(self.find_miner_button)  
-        button_layout.addWidget(self.settings_pool_button)  
-        button_layout.addWidget(self.reboot_button) 
+        
         button_layout.addItem(QSpacerItem(20, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
 
         layout.addLayout(button_layout)
@@ -133,17 +134,15 @@ class ScanTab(QWidget):
         layout.addWidget(self.progress_bar)
 
         self.table = QTableWidget(2000, 20, self)
-    # Инициализация виджета для отображения таблицы
+        # Инициализация виджета для отображения таблицы
         self.table.setSortingEnabled(True)
 
         self.table.horizontalHeader().setSectionsMovable(True)
         self.load_header_state()
 
-
         self.table.verticalHeader().setVisible(False)
 
-
-         # Сделать таблицу нередактируемой
+        # Сделать таблицу нередактируемой
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         # Инициализация виджета для отображения таблицы
 
@@ -249,13 +248,13 @@ class ScanTab(QWidget):
         # Инициализация таймера для периодического выполнения задач мониторинг 
         self.monitor_timer.timeout.connect(self.start_scan_and_get_data)
         self.monitor_timer.setInterval(120 * 1000)  # сек
+        
+    def update_credentials(self, credentials):
+        for model, data in credentials.items():
+            self.command_executor.set_credentials(model, data['login'], data['password'])
+        self.scan_thread.set_credentials(credentials)
 
-   
-    
-    # show_upgrade_dialog: Отвечает за кнопку обновление 
-    def show_upgrade_dialog(self):
-        upgrade_dialog = UpgradeDialog(self)
-        upgrade_dialog.exec_()
+  
 
     
    # Функция start_stop_monitor: стиль кнопки + запус и отключение мониторинга 
@@ -306,9 +305,14 @@ class ScanTab(QWidget):
             print("Ожидание завершения текущего сканирования...")
             self.scan_thread.wait()  # Ждём завершения текущего потока
 
-    # Подключение сигналов
+        # По # Подключение сигналов
         ip_list = list(set(ip_list))
-        self.scan_thread = ScanThread(ip_list)
+         # Передаем учетные данные в ScanThread
+        self.scan_thread = ScanThread(ip_list, self.command_executor.credentials)
+        print(f"Запуск ScanThread с IP-адресами: {ip_list} и учетными данными: {self.command_executor.credentials}")
+
+
+
         self.scan_thread.start()
 
         self.scan_thread.ip_processed_signal.connect(self.update_table)
@@ -317,13 +321,12 @@ class ScanTab(QWidget):
 
   
   
-     # Функция find_or_create_row: ищет дубликаты 
+     
     
     
     @pyqtSlot(dict)
     def update_table(self, data):
       
-
         if not data:
             print("No data provided to update_table.")
             return
@@ -343,13 +346,16 @@ class ScanTab(QWidget):
                 self.process_antminer_data(ip, miner_data, row)
             elif "AVALON" in identification_key:
                 self.process_avalon_data(ip, miner_data, row)
-            elif 'BITMICRO' in identification_key:
-                self.process_bitmicro_data(ip, miner_data, row)
-                self.process_bitmicro_data(ip, miner_data, row)
+           # elif 'BITMICRO' in identification_key:
+              #  self.process_bitmicro_data(ip, miner_data, row)
+               # self.process_bitmicro_data(ip, miner_data, row)
             if 'Vnish' in miner_data.get('fw_name', ''):
                 self.process_vnish_data(ip, miner_data)
                 print(f"Unknown model 'model' for IP {ip}")
 
+             
+
+    # Функция find_or_create_row: ищет дубликаты 
     def find_or_create_row(self, ip):
         for row in range(self.table.rowCount()):
             if self.table.item(row, 1).text() == ip:
@@ -534,9 +540,10 @@ class ScanTab(QWidget):
                 processed_data['devdetails'] = devdetails_data.get('DEVDETAILS', [])
             except json.JSONDecodeError as e:
                 print(f"Ошибка декодирования JSON в devdetails: {e}")
-            # Возможно, добавить логику обработки ошибки здесь
+            else:
+                processed_data['devdetails'] = []
 
-    # Process 'edevs' section
+        # Process 'edevs' section
         edevs_str = data.get('command_data', {}).get('edevs', '')
         if edevs_str:
             try:
@@ -544,24 +551,19 @@ class ScanTab(QWidget):
                 processed_data['edevs'] = edevs_data.get('DEVS', [])
             except json.JSONDecodeError as e:
                 print(f"Ошибка декодирования JSON в edevs: {e}")
-        
-        summary_str = data.get('command_data', {}).get('summary', '').strip()
+            else:
+                processed_data['edevs'] = []
 
-        if summary_str:
-            try:
-                summary_data = json.loads(summary_str)
-                processed_data['summary'] = summary_data.get('SUMMARY', [])[0] if summary_data.get('SUMMARY') else {}
-            except json.JSONDecodeError as e:
-                
-                processed_data['summary'] = {}
-
-
-    
-        # Process 'pools' section
+           # Process 'pools' section
         pools_str = data.get('command_data', {}).get('pools', '')
         if pools_str:
-            pools_data = json.loads(pools_str)
-            processed_data['pools'] = pools_data.get('POOLS', [])
+            try:
+                pools_data = json.loads(pools_str)
+                processed_data['pools'] = pools_data.get('POOLS', [])
+            except json.JSONDecodeError as e:
+                print(f"Ошибка декодирования JSON в pools: {e}")
+            else:
+                processed_data['pools'] = []
         
         return processed_data
     
@@ -721,8 +723,6 @@ class ScanTab(QWidget):
             self.table.setItem(row_for_ip, base_column + 2, status_item)
 
     def process_vnish_data(self, ip, data):
-        
-        
         if not isinstance(data, dict):
             print(f"Данные для IP {ip} не являются словарем")
             return
@@ -730,44 +730,68 @@ class ScanTab(QWidget):
         info_data = data.get('command_data', {}).get('info', {})
         system_data = info_data.get('system', {})
         summary_data = data.get('command_data', {}).get('summary', {})
-        if 'miner' in summary_data and 'pools' in summary_data['miner']:
-            pools = summary_data['miner']['pools']
-        else:
-            pools = []
-
-        print("Извлеченные пулы:", pools)
-
+        miner_data = summary_data.get('miner', {}) if summary_data and summary_data.get('miner') is not None else info_data
+        
+        
+        pools = miner_data.get('pools', []) if miner_data else []
 
         row_for_ip, is_new_row = self.find_or_create_row(ip)
+        # Функция для получения символа статуса пула
+        def get_pool_status_symbol(status):
+            if status == "active":
+                return "✅"
+            elif status == "working":
+                return "♻️"
+            elif status in ["Dead", "Stopped"]:
+                return "❌"
+            else:
+                return status
+            
+        
+        # Add checkbox only for a new row
+        item = QTableWidgetItem()
+        item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
+        item.setCheckState(Qt.Unchecked)
+        self.table.setItem(row_for_ip, 0, item)
+        
 
-            # Добавление чекбокса и IP-адреса для новой строки
         if is_new_row:
-            checkbox_item = QTableWidgetItem()
-            checkbox_item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
-            checkbox_item.setCheckState(Qt.Unchecked)
-            self.table.setItem(row_for_ip, 0, checkbox_item)
+            item = QTableWidgetItem()
+            item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
+            item.setCheckState(Qt.Unchecked)
+            self.table.setItem(row_for_ip, 0, item)
 
-            ip_item = QTableWidgetItem(ip)
-            ip_item.setTextAlignment(Qt.AlignCenter)
-            self.table.setItem(row_for_ip, 1, ip_item)
-     
-    # Обработка данных из info
-        if 'platform' in info_data and 'install_type' in info_data and 'build_time' in info_data:
-            platform_info = f"{info_data.get('platform', '')}/{info_data.get('install_type', '')}/{info_data.get('build_time', '')}"
-            platform_item = QTableWidgetItem(platform_info)
-            platform_item.setTextAlignment(Qt.AlignCenter)
-            self.table.setItem(row_for_ip, 10, platform_item)
+       
+       # Обработка данных из info
+        if info_data:
+            if 'platform' in info_data and 'install_type' in info_data and 'build_time' in info_data:
+                platform_info = f"{info_data.get('platform', '')}/{info_data.get('install_type', '')}/{info_data.get('build_time', '')}"
+                platform_item = QTableWidgetItem(platform_info)
+                platform_item.setTextAlignment(Qt.AlignCenter)
+                self.table.setItem(row_for_ip, 10, platform_item)
   
-        if 'uptime' in system_data:
-            uptime_item = QTableWidgetItem(system_data['uptime'])
-            uptime_item.setTextAlignment(Qt.AlignCenter)
-            self.table.setItem(row_for_ip, 6, uptime_item)
+            if 'uptime' in system_data:
+                uptime_item = QTableWidgetItem(system_data['uptime'])
+                uptime_item.setTextAlignment(Qt.AlignCenter)
+                self.table.setItem(row_for_ip, 6, uptime_item)
+            
+            miner_info = ""
+            if 'miner' in miner_data:
+                miner_info += miner_data['miner']
 
+            if 'fw_name' in miner_data:
+                miner_info += f" {miner_data['fw_name']}"
 
-         
-    # Обработка данных из summary
-        if 'miner' in summary_data:
-            miner_data = summary_data['miner']
+            if 'fw_version' in miner_data:
+                miner_info += f" {miner_data['fw_version']}"
+
+            if miner_info:
+                miner_item = QTableWidgetItem(miner_info)
+                miner_item.setTextAlignment(Qt.AlignCenter)
+                self.table.setItem(row_for_ip, 3, miner_item)
+
+        # Обработка данных из summary
+        if miner_data:
             if 'miner_type' in miner_data:
                 miner_type_item = QTableWidgetItem(miner_data['miner_type'])
                 miner_type_item.setTextAlignment(Qt.AlignCenter)
@@ -788,38 +812,37 @@ class ScanTab(QWidget):
                 fan_speeds_item = QTableWidgetItem(fan_speeds)
                 fan_speeds_item.setTextAlignment(Qt.AlignCenter)
                 self.table.setItem(row_for_ip, 7, fan_speeds_item)
-
+   
             if 'chip_temp' in miner_data:
                 chip_temp = f"{miner_data['chip_temp']['max']}/{miner_data['chip_temp']['min']}"
                 chip_temp_item = QTableWidgetItem(chip_temp)
                 chip_temp_item.setTextAlignment(Qt.AlignCenter)
                 self.table.setItem(row_for_ip, 8, chip_temp_item)
-
+  
             if 'power_consumption' in miner_data:
                 power_consumption_item = QTableWidgetItem(str(miner_data['power_consumption']))
                 power_consumption_item.setTextAlignment(Qt.AlignCenter)
                 self.table.setItem(row_for_ip, 9, power_consumption_item)
 
+            # Обработка данных пула
+        for i, pool in enumerate(pools[:3]):  # Проходим только по первым трем пулам
+            base_column = 11 + i * 3
     
-        # Обработка данных пула
-             # Обработка данных каждого пула
-            for i in range(3):
-               base_column = 11 + i * 3
-            if i < len(pools):
-               pool = pools[i]
-               print(f"Добавление данных пула {i}: URL: {pool.get('url', '')}, User: {pool.get('user', '')}, Status: {pool.get('status', '')}")
-               self.table.setItem(row_for_ip, base_column, QTableWidgetItem(pool.get('url', '')))
-               self.table.setItem(row_for_ip, base_column + 1, QTableWidgetItem(pool.get('user', '')))
-               status_item = QTableWidgetItem(pool.get('status', ''))
-            else:
-               print(f"Добавление 'no data' для пула {i}")
-               self.table.setItem(row_for_ip, base_column, QTableWidgetItem("no data"))
-               self.table.setItem(row_for_ip, base_column + 1, QTableWidgetItem("no data"))
-               status_item = QTableWidgetItem("no data")
-    
+            self.table.setItem(row_for_ip, base_column, QTableWidgetItem(pool.get('url', 'no data')))
+            self.table.setItem(row_for_ip, base_column + 1, QTableWidgetItem(pool.get('user', 'no data')))
+      
+            status_symbol = get_pool_status_symbol(pool.get('status', 'no data'))
+            status_item = QTableWidgetItem(status_symbol)
             status_item.setTextAlignment(Qt.AlignCenter)
             self.table.setItem(row_for_ip, base_column + 2, status_item)
-            self.table.setItem(row_for_ip, base_column + 2, status_item)
+
+        # Добавить пустые значения для оставшихся пулов, если они не представлены
+        for j in range(len(pools), 3):
+            base_column = 11 + j * 3
+            print(f"Добавление 'no data' для пула {j}")
+            self.table.setItem(row_for_ip, base_column, QTableWidgetItem("no data"))
+            self.table.setItem(row_for_ip, base_column + 1, QTableWidgetItem("no data"))
+            self.table.setItem(row_for_ip, base_column + 2, QTableWidgetItem("no data"))
 
 
 
@@ -861,10 +884,23 @@ class ScanTab(QWidget):
             self.table.setItem(row_for_ip, 0, item)
     
 
+        # Обработка данных из stats
         if 'Type' in stats_data:
-            self.table.setItem(row_for_ip, 3, QTableWidgetItem(stats_data['Type']))
-            item.setTextAlignment(Qt.AlignCenter)  # Выровнять текст по центру
+            # Извлечение количества активных чипов на каждой плате
+            chain_acn1 = int(stats_data.get('chain_acn1', 0))
+            chain_acn2 = int(stats_data.get('chain_acn2', 0))
+            chain_acn3 = int(stats_data.get('chain_acn3', 0))
 
+        # Выбор максимального количества активных чипов
+            max_chips_count = max(chain_acn1, chain_acn2, chain_acn3)
+  
+        # Формирование строки с моделью и максимальным количеством чипов
+            model_with_chips = f"{stats_data['Type']} ({max_chips_count})"
+
+        # Установка значения в таблицу
+            model_item = QTableWidgetItem(model_with_chips)
+            model_item.setTextAlignment(Qt.AlignCenter)
+            self.table.setItem(row_for_ip, 3, model_item)
        
         if 'GHS av' in detailed_stats:
             item = QTableWidgetItem(str(detailed_stats['GHS av']))
@@ -950,8 +986,6 @@ class ScanTab(QWidget):
             self.table.setItem(row_for_ip, base_column + 1, worker_item)
             self.table.setItem(row_for_ip, base_column + 2, status_item)
 
-
-       
 
     def process_bitmicro_data(self, ip, data, row):
         
@@ -1107,9 +1141,8 @@ class ScanTab(QWidget):
     def scan_finished(self, row_count):
         print(f"Завершение работы потока ScanThread {id(self)}")
         QMessageBox.information(self, 'Сканирование завершено', f'Найдено {row_count} устройств.')
-
-
-
+        # В ScanTab после завершения сканирования
+        self.update_control_tab_signal.emit(self.collect_data_for_control_tab())    
 
 
 # Функция open_web_interface: открывает айпи по нажатию 
@@ -1123,7 +1156,16 @@ class ScanTab(QWidget):
                 webbrowser.open(f"http://{ip}")
 
 
-
+    # Функция для сбора данных из таблицы
+    def collect_data_for_control_tab(self):
+        data_for_control_tab = []
+        for row in range(self.table.rowCount()):
+            ip = self.table.item(row, 1).text() if self.table.item(row, 1) else ""
+            model = self.table.item(row, 3).text() if self.table.item(row, 3) else ""
+            compile_time = self.table.item(row, 10).text() if self.table.item(row, 10) else ""
+            data_for_control_tab.append((ip, model, compile_time))
+        return data_for_control_tab
+    
 
    # Функция save_values: Отвечает за ... (детальное описание)
     def save_values(self):
@@ -1132,6 +1174,7 @@ class ScanTab(QWidget):
             item = self.table.item(row, 0)
             if item is not None:
                 self.asic_values.append(item.text())
+
 
       # Функция hideEvent: Отвечает за ... (детальное описание)
     def hideEvent(self, event):
@@ -1152,7 +1195,7 @@ class ScanTab(QWidget):
                 state = pickle.load(f)
                 self.table.horizontalHeader().restoreState(state)
 
-# Функция header_checkbox_state_changed: Отвечает за ... (детальное описание)
+    # Функция header_checkbox_state_changed: Отвечает за ... (детальное описание)
     def header_checkbox_state_changed(self, state):
         # Set the state of all checkboxes in the column
         for i in range(self.table.rowCount()):
@@ -1162,7 +1205,10 @@ class ScanTab(QWidget):
       
  
 
-# Функция load_data: Отвечает за ... (детальное описание)
+   
+
+
+     # Функция load_data: Отвечает за ... (детальное описание)
     def load_data(self):
         self.data = 'Data for ScanTab'
 
@@ -1174,23 +1220,6 @@ class ScanTab(QWidget):
 
 
 
-class UpgradeDialog(QDialog):
-# Функция __init__: Отвечает за ... (детальное описание)
-    def __init__(self, parent=None):
-        super(UpgradeDialog, self).__init__(parent)
-        self.label = QLabel(self)
-        self.label.move(10, 10)
-        self.button = QPushButton('Upgrade', self)
-        self.button.move(10, 50)
-        self.button.clicked.connect(self.on_upgrade_button_clicked)
-        self.setWindowTitle("Firmware Upgrade")
-        self.setFixedSize(300, 100)
-
-# Функция on_upgrade_button_clicked: Отвечает за ... (детальное описание)
-    def on_upgrade_button_clicked(self):
-        firmware_file = QFileDialog.getOpenFileName(self, 'Open Firmware File', '', 'Firmware Files (*.bin)')[0]
-        if firmware_file:
-            QMessageBox.information(self, "Upgrade", f"Upgrading with {firmware_file}.")
 
 
        

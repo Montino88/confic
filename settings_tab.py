@@ -3,30 +3,25 @@ from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtCore import pyqtSignal
 from ipaddress import ip_network, AddressValueError
 import os
+from PyQt5 import QtGui
+
 
 
 class SettingsTab(QWidget):
     ip_range_changed = pyqtSignal(list)  # новый сигнал
     ip_range_saved = pyqtSignal(list)  # Сигнал, испускаемый после сохранения IP-адресов
-
-
-
+    credentials_updated = pyqtSignal(dict)  # Сигнал для передачи данных учетных записей
 
 
     def __init__(self, parent=None):
         super(SettingsTab, self).__init__(parent)
         layout = QVBoxLayout()
-        self.changes_made = False  # Флаг, показывающий были ли сделаны изменения
-
-
-
-
+        self.changes_made = False  # Флаг, показывающий, были ли сделаны изменения
 
         ip_layout = QHBoxLayout() 
-        label = QLabel("Enter IP range (e.g.,192.168.0.1 ): ")
         self.ip_input = QLineEdit()  
-        self.ip_input.setFixedWidth(200) 
-        ip_layout.addWidget(label)
+        self.ip_input.setPlaceholderText("IP range (e.g., 192.168.1.1/24)")  # Установка подсказки в поле ввода
+        self.ip_input.setFixedWidth(150) 
         ip_layout.addWidget(self.ip_input)
 
         self.add_button = QPushButton("+")
@@ -39,30 +34,104 @@ class SettingsTab(QWidget):
 
         ip_layout.addWidget(self.add_button)
         ip_layout.addWidget(self.remove_button)
+        ip_layout.addStretch(1)  # Добавляем растягивающееся пространство после кнопок
+
         layout.addLayout(ip_layout)
 
-        self.ip_table = QTableWidget(0, 1)
-        self.ip_table.setMaximumHeight(150)  # уменьшить высоту таблицы
+        self.ip_table = QTableWidget(0, 1)  # Создаем таблицу с 0 строками и 1 столбцом
+        self.ip_table.setHorizontalHeaderLabels(["IP Range"])  # Устанавливаем заголовок столбца
+        self.ip_table.setMaximumHeight(150)
+        self.ip_table.setFixedWidth(130)  # Установка фиксированной ширины для таблицы IP-адресов
+
         layout.addWidget(self.ip_table)
 
+        # Применение стиля к заголовкам и ячейкам таблицы IP-адресов
+        self.style_table_headers(self.ip_table)
+        
+        # Создаем и настраиваем таблицу модели, логина и пароля
+        self.credentials_table = QTableWidget(0, 3)
+        self.credentials_table.setHorizontalHeaderLabels(["Model", "Login", "Password"])
+        self.credentials_table.setMaximumHeight(148)
+        self.credentials_table.setMaximumWidth(318)
+
+        self.initialize_models()
+        layout.addWidget(self.credentials_table)
+
+        # Применение стиля к заголовкам и ячейкам таблицы учетных данных
+        self.style_table_headers(self.credentials_table)
+        
         save_button = QPushButton("Save")
         save_button.clicked.connect(self.save_ip)
         save_button.setFixedSize(150, 40)
+        
+        self.setStyleSheet("""
+            QPushButton { 
+                color: white;
+                border: 2px solid #555555;
+                border-radius: 10px;
+                background: #20B2AA;
+                padding: 5px;
+            } 
+            QPushButton:hover {
+                background: #0C75F5;
+            }
+            QPushButton:pressed {
+                background: #20B2AA;
+            }
+        """)
 
         button_layout = QHBoxLayout()
-        button_layout.addStretch(1)  
+        button_layout.addStretch(1)
         button_layout.addWidget(save_button)
         button_layout.addStretch(1)
         layout.addLayout(button_layout)
         self.setLayout(layout)
 
-
         self.load_data()
+
+    def initialize_models(self):
+        models = ["VnishOS", "Avalonminer", "Whatsminer", "Antminer"]
+        for model in models:
+            row = self.credentials_table.rowCount()
+            self.credentials_table.insertRow(row)
+            model_item = QTableWidgetItem(model)
+            model_item.setFlags(model_item.flags() & ~Qt.ItemIsEditable)  # Сделать ячейку нередактируемой
+            self.credentials_table.setItem(row, 0, model_item)
+            self.credentials_table.setItem(row, 1, QTableWidgetItem(""))
+            self.credentials_table.setItem(row, 2, QTableWidgetItem(""))
+
+    def style_table_headers(self, table):
+        header = table.horizontalHeader()
+        # Стиль для заголовков столбцов
+        header.setStyleSheet("""
+            QHeaderView::section {
+                background-color: #262F34;  /* Цвет фона */
+                color: white;               /* Цвет текста */
+                font: bold;                 /* Жирный шрифт */
+                border: 1px solid #6E6E6E;  /* Граница */
+            }
+        """)
+        table.setFont(QtGui.QFont("Arial", 10))  # Шрифт для таблицы
+        table.setStyleSheet("QTableWidget::item:selected { background-color: #4E4E4E; }")  # Цвет выделения
+
 
     def save_ip(self):
         self.save_data()  # Сохраняем IP-адреса и испускаем сигнал
         dialog = CustomDialog(self)
         dialog.exec_()
+         # Собираем данные учетных записей
+         # Собираем данные учетных записей
+        credentials = {}
+        for row in range(self.credentials_table.rowCount()):
+            model = self.credentials_table.item(row, 0).text()
+            login = self.credentials_table.item(row, 1).text()
+            password = self.credentials_table.item(row, 2).text()
+            if model and login and password:  # Убедитесь, что строки не пустые
+                credentials[model] = {'login': login, 'password': password}
+
+        # Испускаем сигнал с данными учетных записей
+        print("Сохраненные учетные данные:", credentials)
+        self.credentials_updated.emit(credentials)
 
 
     def hideEvent(self, event):

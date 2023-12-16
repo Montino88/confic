@@ -1,17 +1,17 @@
 import sys
 import webbrowser
-from PyQt5.QtCore import pyqtSignal
+from PyQt5.QtCore import pyqtSignal, Qt, QSize
+
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QDockWidget, QListWidget,
                              QListWidgetItem, QTextEdit, QPushButton, QToolBar,
-                             QWidget, QLabel, QVBoxLayout, QAbstractItemView, QStackedWidget)
+                             QWidget, QLabel, QVBoxLayout, QAbstractItemView, QStackedWidget, QSizePolicy)
 from PyQt5.QtGui import QIcon
-from PyQt5.QtCore import Qt, QSize
 from scan_tab import ScanTab
 from settings_tab import SettingsTab
+from control_tab import ControlTab  # Убедитесь, что этот импорт присутствует
 
 # Класс для создания кликабельных виджетов
 class ClickableWidget(QWidget):
-
     clicked = pyqtSignal()
 
     def mousePressEvent(self, event):
@@ -20,7 +20,7 @@ class ClickableWidget(QWidget):
 
 # Класс для виджета с иконкой и текстом
 class IconLabelWidget(ClickableWidget):
-    def __init__(self, icon_path, text, link=None):
+    def __init__(self, icon_path, text=None, link=None):
         super().__init__()
         self.link = link
 
@@ -30,12 +30,12 @@ class IconLabelWidget(ClickableWidget):
         icon_label = QLabel()
         icon_label.setPixmap(QIcon(icon_path).pixmap(24, 24))
         icon_label.setAlignment(Qt.AlignCenter)
-
-        text_label = QLabel(text)
-        text_label.setAlignment(Qt.AlignCenter)
-
         layout.addWidget(icon_label)
-        layout.addWidget(text_label)
+
+        if text:
+            text_label = QLabel(text)
+            text_label.setAlignment(Qt.AlignCenter)
+            layout.addWidget(text_label)
 
         self.setLayout(layout)
         self.clicked.connect(self.on_clicked)
@@ -44,170 +44,117 @@ class IconLabelWidget(ClickableWidget):
         if self.link:
             webbrowser.open(self.link)
 
-# Основное окно приложения
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        # Создание вкладок
-        self.scan_tab = ScanTab(self)
+        self.scan_tab = ScanTab()
         self.settings_tab = SettingsTab(self)
+        self.control_tab = ControlTab(self)  # Убедитесь, что экземпляр ControlTab создается
 
-        # Установление соединения между сигналом и слотом
-        self.settings_tab.ip_range_saved.connect(self.scan_tab.on_ip_range_saved)
+        self.central_widget = QStackedWidget()  # Создаем QStackedWidget
+        self.setCentralWidget(self.central_widget)
 
+        # Добавление вкладок в QStackedWidget
+        self.central_widget.addWidget(self.scan_tab)
+        self.central_widget.addWidget(self.settings_tab)
+        self.central_widget.addWidget(self.control_tab)
 
+        self.settings_dock = QDockWidget("Settings", self)
+        self.settings_dock.setWidget(self.settings_tab)
+        self.settings_dock.setAllowedAreas(Qt.RightDockWidgetArea)
+        self.settings_dock.setTitleBarWidget(QWidget())
+        self.addDockWidget(Qt.RightDockWidgetArea, self.settings_dock)
 
+        self.settings_dock.hide()
 
-        # Инициализация стека виджетов
-        self.stack = QStackedWidget(self)
-        self.stack.addWidget(self.scan_tab)
-        self.stack.addWidget(self.settings_tab)
-        self.setCentralWidget(self.stack)
-
-        # Словарь для соответствия между элементами меню и вкладками
-        self.tab_dict = {
-            0: self.scan_tab,
-            1: self.settings_tab
-        }
-
-        # Настройка стилей
-        self.setStyleSheet("""
-            QWidget {
-                background-color: #FFFFFF;  # Цвет фона основного окна
-                color: #000000;  # Цвет текста всех виджетов
-            }
-            QDockWidget {
-                background: #0DDEF4;  # Цвет фона DockWidget'ов
-            }
-            QPushButton {
-                background-color: #FFFFFF;  # Цвет фона кнопок
-            }
-            QPushButton:hover {
-                background-color: #0C75F5;  # Цвет фона кнопок при наведении
-                color: #20B2AA;  # Цвет текста кнопок при наведении
-                border: 1px dotted #FFFFFF;
-            }
-            QListView::item:hover {
-                background: #FFFFFF;  # Цвет фона элементов списка при наведении
-            }
-            QListView::item:focus {
-                border: none;
-            }
-            QScrollBar {
-                width: 0px;  # Ширина полосы прокрутки
-            }
-        """)
-
-        # Настройка списка меню слева
-        self.list_widget = QListWidget()
-        self.list_widget.setSelectionMode(QAbstractItemView.NoSelection)
-        self.list_widget.setStyleSheet("background-color: #FFFFFF;")  # Цвет фона для списка
-        base_path = "C:/Users/acer/Desktop/config/moniy/resources/"
-        
-
-
-        self.add_menu_item("Scan", base_path + "scan.png", ScanTab)
-        self.add_menu_item("Settings", base_path + "setting.png", SettingsTab)
-
-        for _ in range(12):
-            item = QListWidgetItem()
-            item.setFlags(Qt.NoItemFlags)
-            self.list_widget.addItem(item)
-
-        # Настройка DockWidget
-        self.dock_widget = QDockWidget(self)
-
-        self.dock_widget.setWidget(self.list_widget)
-        self.addDockWidget(Qt.LeftDockWidgetArea, self.dock_widget)
-        self.dock_widget.setTitleBarWidget(QWidget())
-        self.dock_widget.setFeatures(QDockWidget.NoDockWidgetFeatures)
-        self.dock_widget.setFixedHeight(800)
-        self.dock_widget.setFixedWidth(90)
-
-        # Настройка кнопки переключения меню
-        self.toggle_button = QPushButton()
-        self.toggle_button.setIcon(QIcon(base_path + "menu.jpg"))
-        self.toggle_button.setIconSize(QSize(32, 32))
-        self.toggle_button.clicked.connect(self.toggle_dock_widget)
-        self.toggle_button.setFocusPolicy(Qt.NoFocus)
-        self.toggle_button.setFixedSize(32, 32)
-
-        
-
-        # Настройка верхней панели инструментов
-        toolbar = QToolBar()
-        toolbar.setMovable(False)
-        toolbar.addWidget(self.toggle_button)
-
-       
-
-        toolbar.setStyleSheet("background-color: #20B2AA;")  # Цвет фона для верхней панели инструментов
-        self.addToolBar(Qt.TopToolBarArea, toolbar)
+        self.init_toolbar()
 
         self.resize(800, 600)
 
-        # Инициализация текущей вкладки
-        self.current_tab = None
-
-        # слоты
         self.scan_tab.scan_finished_signal.connect(self.forward_scan_finished)
-        # сигнал по изменению айпи 
+        self.settings_tab.ip_range_saved.connect(self.scan_tab.on_ip_range_saved)
+        # Подключение сигнала из SettingsTab к слоту в ScanTab
+        self.settings_tab.credentials_updated.connect(self.scan_tab.update_credentials)
+        # Подключаем сигналы и слоты
+        self.settings_tab.credentials_updated.connect(self.on_credentials_updated)
+        # Соединение сигнала и слота
+        self.scan_tab.update_control_tab_signal.connect(self.control_tab.update_with_scan_data)
 
 
-       
+
+    def init_toolbar(self):
+        toolbar = QToolBar("Main Toolbar")
+        toolbar.setMovable(False)
+        toolbar.setMinimumHeight(50)
+        toolbar.setMaximumHeight(50)
+
+        # Функция для добавления пространства между кнопками
+        def add_spacer():
+            spacer = QWidget()
+            spacer.setFixedSize(10, 10)  # Задаем фиксированный размер прозрачного виджета
+            toolbar.addWidget(spacer)
+
+        logo_label = QLabel(self)
+        logo_label.setPixmap(QIcon("C:/Users/acer/Desktop/config/moniy/resources/lodo2.png").pixmap(48, 48))
+        toolbar.addWidget(logo_label)
+
+        spacer = QWidget()
+        spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        toolbar.addWidget(spacer)
+
+        self.toggle_scan_tab_button = QPushButton()
+        icon_path_scan = "C:/Users/acer/Desktop/config/moniy/resources/scan.png"
+        self.toggle_scan_tab_button.setIcon(QIcon(icon_path_scan))
+        self.toggle_scan_tab_button.setIconSize(QSize(24, 24))
+        self.toggle_scan_tab_button.clicked.connect(lambda: self.central_widget.setCurrentWidget(self.scan_tab))
+        toolbar.addWidget(self.toggle_scan_tab_button)
+
+        add_spacer()  # Добавляем пространство между кнопками
+
+        self.toggle_control_tab_button = QPushButton()
+        icon_path_control = "C:/Users/acer/Desktop/config/moniy/resources/Config.png"
+        self.toggle_control_tab_button.setIcon(QIcon(icon_path_control))
+        self.toggle_control_tab_button.setIconSize(QSize(24, 24))
+        self.toggle_control_tab_button.clicked.connect(lambda: self.central_widget.setCurrentWidget(self.control_tab))
+        toolbar.addWidget(self.toggle_control_tab_button)
         
+        add_spacer()  # Добавляем пространство между кнопками
 
-        # Сигналы и слоты
-        self.list_widget.itemClicked.connect(self.on_item_clicked)
-        self.on_item_clicked(self.list_widget.item(0))  # По умолчанию открываем вкладку «Scan»
+        self.toggle_settings_button = QPushButton()
+        icon_path_settings = "C:/Users/acer/Desktop/config/moniy/resources/setting.png"
+        self.toggle_settings_button.setIcon(QIcon(icon_path_settings))
+        self.toggle_settings_button.setIconSize(QSize(24, 24))
+        self.toggle_settings_button.clicked.connect(self.toggle_settings_dock)
+        toolbar.addWidget(self.toggle_settings_button)
 
-        self.stack.currentChanged.connect(self.switch_tab)
-     
-    def start_scan_from_monitor(self):
-        self.scan_tab.start_scan_and_get_data()
+        toolbar.setStyleSheet("""
+            QToolBar {
+                background-color: #05B8CC;
+            }
+            QPushButton {
+                background-color: #05B8CC;
+                border: none;
+            }
+        """)
+        self.addToolBar(Qt.TopToolBarArea, toolbar)
+
+    def on_credentials_updated(self, credentials):
+        # Этот слот будет получать данные учетных записей из SettingsTab
+        self.control_tab.set_credentials(credentials)
+
+    def toggle_settings_dock(self):
+        self.settings_dock.setVisible(not self.settings_dock.isVisible())
 
     def forward_scan_finished(self):
-        self.monitor_tab.receive_scan_finished()
+        # Действия после завершения сканирования
+        pass
 
-    def on_item_clicked(self, item):
-        item_index = self.list_widget.row(item)
-        self.stack.setCurrentIndex(item_index)
-        self.switch_tab(item_index)
+    def load_data(self):
+        self.data = 'Data for main'
 
-    def switch_tab(self, index):
-        # Если была открыта какая-то вкладка, сохранить ее данные
-        if self.current_tab is not None:
-            self.current_tab.save_data()
-
-        # Загрузить данные новой вкладки
-        new_tab = self.stack.widget(index)
-        new_tab.load_data()
-
-        # Обновить текущую вкладку
-        self.current_tab = new_tab
-
-    def toggle_dock_widget(self):
-        if self.dock_widget.width() > 70:
-            self.dock_widget.setFixedWidth(70)
-        else:
-            self.dock_widget.setFixedWidth(130)
-
-    def change_label_style(self, color, font_size):
-        """Функция для изменения стиля надписи"""
-        self.label.setStyleSheet(f"""
-            color: {color};  # Цвет текста
-            font-size: {font_size}px;  # Размер шрифта
-        """)
-
-    def add_menu_item(self, text, icon_path, tab_class):
-        item_widget = IconLabelWidget(icon_path, text)
-        item = QListWidgetItem()
-        item.setSizeHint(item_widget.sizeHint())
-        self.list_widget.addItem(item)
-        self.list_widget.setItemWidget(item, item_widget)
-
-
+    def save_data(self):
+        print(f"Saving data: {self.data}")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
